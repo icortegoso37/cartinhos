@@ -1,0 +1,1718 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cartiños - Gestor de Gastos Inteligente</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #0f0f23 0%, #1a0a2e 100%);
+            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            padding-top: 80px;
+        }
+
+        .nav-fixed {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: linear-gradient(135deg, rgba(15, 15, 35, 0.98) 0%, rgba(26, 10, 46, 0.98) 100%);
+            backdrop-filter: blur(10px);
+            border-bottom: 2px solid rgba(131, 56, 236, 0.3);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-neon {
+            background: rgba(15, 15, 35, 0.8);
+            border: 2px solid transparent;
+            background-clip: padding-box;
+            position: relative;
+        }
+
+        .card-neon::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(45deg, #FF006E, #8338EC, #3A86FF, #FFBE0B);
+            border-radius: inherit;
+            z-index: -1;
+            opacity: 0.5;
+        }
+
+        .btn-neon {
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .btn-neon:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 20px rgba(131, 56, 236, 0.6);
+        }
+
+        .input-neon {
+            background: rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(131, 56, 236, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        .input-neon:focus {
+            outline: none;
+            border-color: #8338EC;
+            box-shadow: 0 0 15px rgba(131, 56, 236, 0.3);
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, rgba(131, 56, 236, 0.2), rgba(255, 0, 110, 0.1));
+            backdrop-filter: blur(10px);
+        }
+
+        .delete-btn {
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .item-hover:hover .delete-btn {
+            opacity: 1;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% {
+                box-shadow: 0 0 10px rgba(131, 56, 236, 0.5);
+            }
+            50% {
+                box-shadow: 0 0 20px rgba(255, 0, 110, 0.7);
+            }
+        }
+
+        .pulse-animation {
+            animation: pulse-glow 2s infinite;
+        }
+
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        
+        input[type="number"] {
+            -moz-appearance: textfield;
+        }
+    </style>
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+</head>
+<body class="text-white">
+    <!-- Navegación Fija -->
+    <div class="nav-fixed">
+        <div class="max-w-7xl mx-auto px-4 py-3">
+            <div class="flex flex-wrap gap-2 items-center justify-between">
+                <h1 class="text-2xl font-black" style="background: linear-gradient(45deg, #FF006E, #8338EC, #3A86FF, #FFBE0B); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+                    💰 Cartiños
+                </h1>
+                <div class="flex flex-wrap gap-2" id="nav-buttons"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="app" class="min-h-screen p-4 md:p-8"></div>
+
+    <script>
+        // Estado global de la aplicación
+        let state = {
+            sueldo: localStorage.getItem('sueldo') || '',
+            diaCobro: localStorage.getItem('diaCobro') || '',
+            gastosFijos: JSON.parse(localStorage.getItem('gastosFijos') || '[]'),
+            gastosRecurrentes: JSON.parse(localStorage.getItem('gastosRecurrentes') || '[]'),
+            gastos: JSON.parse(localStorage.getItem('gastos') || '[]'),
+            ingresos: JSON.parse(localStorage.getItem('ingresos') || '[]'),
+            ajustes: JSON.parse(localStorage.getItem('ajustes') || '[]'),
+            objetivosAhorro: JSON.parse(localStorage.getItem('objetivosAhorro') || '[]'),
+            categorias: JSON.parse(localStorage.getItem('categorias') || '["Alimentación", "Transporte", "Entretenimiento", "Salud", "Hogar", "Ropa", "Otros"]'),
+            cuentas: JSON.parse(localStorage.getItem('cuentas') || '[{"id": 1, "nombre": "Cuenta Principal", "tipo": "banco", "saldo": 0}]'),
+            alertasConfig: JSON.parse(localStorage.getItem('alertasConfig') || '{"diasParaCobro": 3, "porcentajeGastoMitadMes": 50, "alertaObjetivosEnRiesgo": true}'),
+            vista: 'principal',
+            alertasMostradas: [],
+            ultimaActualizacionRecurrentes: localStorage.getItem('ultimaActualizacionRecurrentes') || ''
+        };
+
+        let saveTimeout = null;
+
+        // Función para guardar en localStorage con debounce
+        function guardarEstadoDebounce() {
+            if (saveTimeout) clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(() => {
+                guardarEstado();
+            }, 1000);
+        }
+
+        // Función para guardar en localStorage inmediatamente
+        function guardarEstado() {
+            localStorage.setItem('sueldo', state.sueldo);
+            localStorage.setItem('diaCobro', state.diaCobro);
+            localStorage.setItem('gastosFijos', JSON.stringify(state.gastosFijos));
+            localStorage.setItem('gastosRecurrentes', JSON.stringify(state.gastosRecurrentes));
+            localStorage.setItem('gastos', JSON.stringify(state.gastos));
+            localStorage.setItem('ingresos', JSON.stringify(state.ingresos));
+            localStorage.setItem('ajustes', JSON.stringify(state.ajustes));
+            localStorage.setItem('objetivosAhorro', JSON.stringify(state.objetivosAhorro));
+            localStorage.setItem('categorias', JSON.stringify(state.categorias));
+            localStorage.setItem('cuentas', JSON.stringify(state.cuentas));
+            localStorage.setItem('alertasConfig', JSON.stringify(state.alertasConfig));
+            localStorage.setItem('ultimaActualizacionRecurrentes', state.ultimaActualizacionRecurrentes);
+        }
+
+        // Función para obtener color por categoría
+        function obtenerColorCategoria(categoria) {
+            const coloresPredefinidos = {
+                'Alimentación': '#FF006E',
+                'Transporte': '#8338EC',
+                'Entretenimiento': '#FFBE0B',
+                'Salud': '#FB5607',
+                'Hogar': '#3A86FF',
+                'Ropa': '#FF006E',
+                'Otros': '#00F5FF'
+            };
+            
+            if (coloresPredefinidos[categoria]) return coloresPredefinidos[categoria];
+            
+            let hash = 0;
+            for (let i = 0; i < categoria.length; i++) {
+                hash = categoria.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const colores = ['#FF006E', '#8338EC', '#FFBE0B', '#FB5607', '#3A86FF', '#00F5FF', '#10b981', '#f59e0b'];
+            return colores[Math.abs(hash) % colores.length];
+        }
+
+        // Función para calcular el rango del período de pago actual
+        function obtenerPeriodoPagoActual() {
+            const hoy = new Date();
+            const diaActual = hoy.getDate();
+            const mesActual = hoy.getMonth();
+            const añoActual = hoy.getFullYear();
+            const diaCobro = parseInt(state.diaCobro || 1);
+            
+            let inicioPeriodo, finPeriodo;
+            
+            if (diaActual >= diaCobro) {
+                // Estamos en el período que empezó este mes
+                inicioPeriodo = new Date(añoActual, mesActual, diaCobro);
+                finPeriodo = new Date(añoActual, mesActual + 1, diaCobro - 1);
+            } else {
+                // Estamos en el período que empezó el mes pasado
+                inicioPeriodo = new Date(añoActual, mesActual - 1, diaCobro);
+                finPeriodo = new Date(añoActual, mesActual, diaCobro - 1);
+            }
+            
+            return { inicioPeriodo, finPeriodo };
+        }
+
+        // Función para actualizar saldo de cuenta
+        function actualizarSaldoCuenta(cuentaId, monto, tipo) {
+            const cuenta = state.cuentas.find(c => c.id === cuentaId);
+            if (cuenta) {
+                if (tipo === 'gasto') {
+                    cuenta.saldo -= parseFloat(monto);
+                } else if (tipo === 'ingreso') {
+                    cuenta.saldo += parseFloat(monto);
+                }
+            }
+        }
+
+        // Función para recalcular todos los saldos de cuentas
+        function recalcularSaldosCuentas() {
+            // Resetear todos los saldos a 0
+            state.cuentas.forEach(c => c.saldo = 0);
+            
+            // Aplicar todos los movimientos
+            state.gastos.forEach(g => {
+                actualizarSaldoCuenta(g.cuentaId, g.monto, 'gasto');
+            });
+            state.ingresos.forEach(i => {
+                actualizarSaldoCuenta(i.cuentaId, i.monto, 'ingreso');
+            });
+            state.ajustes.forEach(a => {
+                actualizarSaldoCuenta(a.cuentaId, a.monto, a.tipo === 'positivo' ? 'ingreso' : 'gasto');
+            });
+        }
+
+        // Función para procesar gastos recurrentes automáticamente
+        function procesarGastosRecurrentes() {
+            const { inicioPeriodo } = obtenerPeriodoPagoActual();
+            const inicioPeriodoStr = inicioPeriodo.toISOString().split('T')[0];
+            
+            // Si ya procesamos este período, no hacer nada
+            if (state.ultimaActualizacionRecurrentes === inicioPeriodoStr) {
+                return;
+            }
+            
+            // Añadir todos los gastos recurrentes como gastos normales
+            state.gastosRecurrentes.forEach(gr => {
+                state.gastos.push({
+                    descripcion: `${gr.nombre} (Recurrente)`,
+                    monto: gr.monto,
+                    categoria: gr.categoria,
+                    cuentaId: gr.cuentaId,
+                    fecha: inicioPeriodo.toISOString(),
+                    id: Date.now() + Math.random(),
+                    esRecurrente: true
+                });
+            });
+            
+            state.ultimaActualizacionRecurrentes = inicioPeriodoStr;
+            guardarEstado();
+        }
+
+        // Función para calcular estadísticas del período actual
+        function calcularEstadisticas() {
+            const hoy = new Date();
+            const { inicioPeriodo, finPeriodo } = obtenerPeriodoPagoActual();
+            
+            const diasRestantes = Math.ceil((finPeriodo - hoy) / (1000 * 60 * 60 * 24)) + 1;
+            const diasTotalesPeriodo = Math.ceil((finPeriodo - inicioPeriodo) / (1000 * 60 * 60 * 24)) + 1;
+            const diasTranscurridos = diasTotalesPeriodo - diasRestantes;
+            
+            const totalGastosFijos = state.gastosFijos.reduce((sum, gasto) => sum + parseFloat(gasto.monto || 0), 0);
+            
+            // Filtrar gastos del período actual
+            const gastosDelPeriodo = state.gastos.filter(gasto => {
+                const fechaGasto = new Date(gasto.fecha);
+                return fechaGasto >= inicioPeriodo && fechaGasto <= finPeriodo;
+            });
+            
+            const totalGastosVariables = gastosDelPeriodo.reduce((sum, gasto) => sum + parseFloat(gasto.monto || 0), 0);
+            
+            // Filtrar ingresos del período actual
+            const ingresosDelPeriodo = state.ingresos.filter(ingreso => {
+                const fechaIngreso = new Date(ingreso.fecha);
+                return fechaIngreso >= inicioPeriodo && fechaIngreso <= finPeriodo;
+            });
+            const totalIngresos = ingresosDelPeriodo.reduce((sum, ingreso) => sum + parseFloat(ingreso.monto || 0), 0);
+            
+            // Filtrar ajustes del período actual
+            const ajustesDelPeriodo = state.ajustes.filter(ajuste => {
+                const fechaAjuste = new Date(ajuste.fecha);
+                return fechaAjuste >= inicioPeriodo && fechaAjuste <= finPeriodo;
+            });
+            const totalAjustes = ajustesDelPeriodo.reduce((sum, ajuste) => {
+                const monto = parseFloat(ajuste.monto || 0);
+                return sum + (ajuste.tipo === 'positivo' ? monto : -monto);
+            }, 0);
+            
+            // Calcular ahorro diario necesario para objetivos activos
+            let ahorroDiarioNecesario = 0;
+            state.objetivosAhorro.forEach(objetivo => {
+                if (objetivo.activo !== false) {
+                    const fechaLimite = new Date(objetivo.fechaLimite);
+                    const diasParaObjetivo = Math.ceil((fechaLimite - hoy) / (1000 * 60 * 60 * 24));
+                    const montoRestante = parseFloat(objetivo.metaMonto) - parseFloat(objetivo.montoAhorrado || 0);
+                    
+                    if (diasParaObjetivo > 0 && montoRestante > 0) {
+                        ahorroDiarioNecesario += montoRestante / diasParaObjetivo;
+                    }
+                }
+            });
+            
+            const disponibleTotal = parseFloat(state.sueldo || 0) + totalIngresos + totalAjustes - totalGastosFijos - totalGastosVariables;
+            const gastoPorDiaRestante = diasRestantes > 0 ? (disponibleTotal - (ahorroDiarioNecesario * diasRestantes)) / diasRestantes : 0;
+            
+            const totalGastos = totalGastosFijos + totalGastosVariables;
+            const ingresoTotal = parseFloat(state.sueldo || 0) + totalIngresos;
+            const porcentajeGastado = ingresoTotal > 0 ? (totalGastos / ingresoTotal) * 100 : 0;
+            
+            return {
+                diasRestantes,
+                diasTotalesPeriodo,
+                diasTranscurridos,
+                totalGastosFijos,
+                totalGastosVariables,
+                totalIngresos,
+                totalAjustes,
+                disponibleTotal,
+                gastoPorDiaRestante: Math.max(0, gastoPorDiaRestante),
+                ahorroDiarioNecesario,
+                totalGastos,
+                ingresoTotal,
+                porcentajeGastado,
+                inicioPeriodo,
+                finPeriodo
+            };
+        }
+
+        // Función para calcular proyecciones
+        function calcularProyecciones() {
+            const stats = calcularEstadisticas();
+            
+            // Proyección de ahorro en 3 meses
+            const ahorroMensualActual = stats.disponibleTotal;
+            const proyeccion3Meses = ahorroMensualActual * 3;
+            
+            // Calcular gastos por categoría para recomendaciones
+            const { inicioPeriodo, finPeriodo } = obtenerPeriodoPagoActual();
+            const gastosDelPeriodo = state.gastos.filter(g => {
+                const fecha = new Date(g.fecha);
+                return fecha >= inicioPeriodo && fecha <= finPeriodo;
+            });
+            
+            const gastosPorCategoria = {};
+            gastosDelPeriodo.forEach(g => {
+                const cat = g.categoria || 'Otros';
+                gastosPorCategoria[cat] = (gastosPorCategoria[cat] || 0) + parseFloat(g.monto);
+            });
+            
+            // Buscar categoría con mayor gasto
+            let categoríaMayorGasto = null;
+            let mayorGasto = 0;
+            Object.entries(gastosPorCategoria).forEach(([cat, monto]) => {
+                if (monto > mayorGasto) {
+                    mayorGasto = monto;
+                    categoríaMayorGasto = cat;
+                }
+            });
+            
+            // Calcular recomendación (reducir 10% en categoría mayor)
+            let recomendacion = null;
+            if (categoríaMayorGasto && mayorGasto > 0) {
+                const ahorroPotencial = mayorGasto * 0.1;
+                const diasParaObjetivo = state.objetivosAhorro
+                    .filter(o => o.activo !== false)
+                    .map(o => {
+                        const fechaLimite = new Date(o.fechaLimite);
+                        const montoRestante = parseFloat(o.metaMonto) - parseFloat(o.montoAhorrado || 0);
+                        const diasActuales = Math.ceil((fechaLimite - new Date()) / (1000 * 60 * 60 * 24));
+                        if (montoRestante > 0 && diasActuales > 0) {
+                            const diasMejor = Math.floor(montoRestante / (stats.disponibleTotal + ahorroPotencial) * 30);
+                            return { nombre: o.nombre, diasActuales, diasMejor };
+                        }
+                        return null;
+                    })
+                    .filter(o => o !== null)[0];
+                
+                recomendacion = {
+                    categoria: categoríaMayorGasto,
+                    ahorroPotencial: ahorroPotencial,
+                    objetivo: diasParaObjetivo
+                };
+            }
+            
+            return {
+                proyeccion3Meses,
+                ahorroMensualActual,
+                recomendacion
+            };
+        }
+
+        // Función para verificar alertas inteligentes
+        function verificarAlertas() {
+            const nuevasAlertas = [];
+            const stats = calcularEstadisticas();
+
+            // Alerta: Días para cobrar
+            if (state.alertasConfig.diasParaCobro > 0 && stats.diasRestantes <= state.alertasConfig.diasParaCobro) {
+                nuevasAlertas.push({
+                    tipo: 'info',
+                    mensaje: `⏰ Te quedan ${stats.diasRestantes} días para cobrar`,
+                    id: 'dias-cobro'
+                });
+            }
+
+            // Alerta: Has gastado más del X% antes de mitad del período
+            const mitadPeriodo = Math.floor(stats.diasTotalesPeriodo / 2);
+            if (stats.diasTranscurridos < mitadPeriodo && stats.porcentajeGastado > state.alertasConfig.porcentajeGastoMitadMes) {
+                nuevasAlertas.push({
+                    tipo: 'warning',
+                    mensaje: `⚠️ Has gastado el ${stats.porcentajeGastado.toFixed(1)}% antes de mitad del período`,
+                    id: 'gasto-mitad'
+                });
+            }
+
+            // Alerta: Objetivos en riesgo
+            if (state.alertasConfig.alertaObjetivosEnRiesgo) {
+                state.objetivosAhorro.forEach(objetivo => {
+                    if (objetivo.activo !== false) {
+                        const fechaLimite = new Date(objetivo.fechaLimite);
+                        const diasRestantes = Math.ceil((fechaLimite - new Date()) / (1000 * 60 * 60 * 24));
+                        const montoRestante = parseFloat(objetivo.metaMonto) - parseFloat(objetivo.montoAhorrado || 0);
+                        const ahorroDiarioNecesario = diasRestantes > 0 ? montoRestante / diasRestantes : 0;
+                        
+                        if (ahorroDiarioNecesario > stats.gastoPorDiaRestante && diasRestantes > 0) {
+                            nuevasAlertas.push({
+                                tipo: 'danger',
+                                mensaje: `🎯 Tu objetivo "${objetivo.nombre}" está en riesgo. Necesitas ahorrar ${ahorroDiarioNecesario.toFixed(2)}€/día`,
+                                id: `objetivo-riesgo-${objetivo.id}`
+                            });
+                        }
+                    }
+                });
+            }
+
+            // Alerta: Saldo negativo en alguna cuenta
+            state.cuentas.forEach(cuenta => {
+                if (cuenta.saldo < 0) {
+                    nuevasAlertas.push({
+                        tipo: 'danger',
+                        mensaje: `💳 Tu cuenta "${cuenta.nombre}" tiene saldo negativo: ${cuenta.saldo.toFixed(2)}€`,
+                        id: `cuenta-negativa-${cuenta.id}`
+                    });
+                }
+            });
+
+            state.alertasMostradas = nuevasAlertas;
+        }
+
+        // Funciones de gestión de datos
+        function agregarGastoFijo() {
+            const nombre = document.getElementById('gasto-fijo-nombre').value;
+            const monto = document.getElementById('gasto-fijo-monto').value;
+            
+            if (nombre && monto && parseFloat(monto) > 0) {
+                state.gastosFijos.push({
+                    nombre,
+                    monto: parseFloat(monto),
+                    id: Date.now()
+                });
+                document.getElementById('gasto-fijo-nombre').value = '';
+                document.getElementById('gasto-fijo-monto').value = '';
+                guardarEstado();
+                render();
+            }
+        }
+
+        function eliminarGastoFijo(id) {
+            state.gastosFijos = state.gastosFijos.filter(g => g.id !== id);
+            guardarEstado();
+            render();
+        }
+
+        function agregarGastoRecurrente() {
+            const nombre = document.getElementById('gasto-rec-nombre').value;
+            const monto = document.getElementById('gasto-rec-monto').value;
+            const categoria = document.getElementById('gasto-rec-categoria').value;
+            const cuentaId = parseInt(document.getElementById('gasto-rec-cuenta').value);
+            
+            if (nombre && monto && parseFloat(monto) > 0) {
+                state.gastosRecurrentes.push({
+                    nombre,
+                    monto: parseFloat(monto),
+                    categoria,
+                    cuentaId,
+                    id: Date.now()
+                });
+                document.getElementById('gasto-rec-nombre').value = '';
+                document.getElementById('gasto-rec-monto').value = '';
+                guardarEstado();
+                render();
+            }
+        }
+
+        function eliminarGastoRecurrente(id) {
+            state.gastosRecurrentes = state.gastosRecurrentes.filter(g => g.id !== id);
+            guardarEstado();
+            render();
+        }
+
+        function agregarGasto() {
+            const descripcion = document.getElementById('gasto-descripcion').value;
+            const monto = document.getElementById('gasto-monto').value;
+            const categoria = document.getElementById('gasto-categoria').value;
+            const cuentaId = parseInt(document.getElementById('gasto-cuenta').value);
+            
+            if (descripcion && monto && parseFloat(monto) > 0) {
+                const nuevoGasto = {
+                    descripcion,
+                    monto: parseFloat(monto),
+                    categoria,
+                    cuentaId,
+                    fecha: new Date().toISOString(),
+                    id: Date.now()
+                };
+                
+                state.gastos.push(nuevoGasto);
+                actualizarSaldoCuenta(cuentaId, monto, 'gasto');
+                
+                document.getElementById('gasto-descripcion').value = '';
+                document.getElementById('gasto-monto').value = '';
+                
+                guardarEstado();
+                verificarAlertas();
+                
+                // Preguntar si quiere destinar parte a objetivos
+                const stats = calcularEstadisticas();
+                if (stats.gastoPorDiaRestante > 0 && state.objetivosAhorro.length > 0) {
+                    mostrarDialogoAhorroObjetivo();
+                }
+                
+                render();
+            }
+        }
+
+        function eliminarGasto(id) {
+            const gasto = state.gastos.find(g => g.id === id);
+            if (gasto) {
+                actualizarSaldoCuenta(gasto.cuentaId, -gasto.monto, 'gasto');
+                state.gastos = state.gastos.filter(g => g.id !== id);
+                guardarEstado();
+                render();
+            }
+        }
+
+        function agregarIngreso() {
+            const descripcion = document.getElementById('ingreso-descripcion').value;
+            const monto = document.getElementById('ingreso-monto').value;
+            const cuentaId = parseInt(document.getElementById('ingreso-cuenta').value);
+            
+            if (descripcion && monto && parseFloat(monto) > 0) {
+                state.ingresos.push({
+                    descripcion,
+                    monto: parseFloat(monto),
+                    cuentaId,
+                    fecha: new Date().toISOString(),
+                    id: Date.now()
+                });
+                
+                actualizarSaldoCuenta(cuentaId, monto, 'ingreso');
+                
+                document.getElementById('ingreso-descripcion').value = '';
+                document.getElementById('ingreso-monto').value = '';
+                
+                guardarEstado();
+                render();
+            }
+        }
+
+        function eliminarIngreso(id) {
+            const ingreso = state.ingresos.find(i => i.id === id);
+            if (ingreso) {
+                actualizarSaldoCuenta(ingreso.cuentaId, -ingreso.monto, 'ingreso');
+                state.ingresos = state.ingresos.filter(i => i.id !== id);
+                guardarEstado();
+                render();
+            }
+        }
+
+        function agregarObjetivo() {
+            const nombre = document.getElementById('objetivo-nombre').value;
+            const metaMonto = document.getElementById('objetivo-meta').value;
+            const fechaLimite = document.getElementById('objetivo-fecha').value;
+            
+            if (nombre && metaMonto && parseFloat(metaMonto) > 0 && fechaLimite) {
+                state.objetivosAhorro.push({
+                    nombre,
+                    metaMonto: parseFloat(metaMonto),
+                    fechaLimite,
+                    montoAhorrado: 0,
+                    id: Date.now(),
+                    activo: true
+                });
+                
+                document.getElementById('objetivo-nombre').value = '';
+                document.getElementById('objetivo-meta').value = '';
+                document.getElementById('objetivo-fecha').value = '';
+                
+                guardarEstado();
+                render();
+            }
+        }
+
+        function eliminarObjetivo(id) {
+            state.objetivosAhorro = state.objetivosAhorro.filter(o => o.id !== id);
+            guardarEstado();
+            render();
+        }
+
+        function anadirAhorroObjetivo(objetivoId, monto) {
+            const objetivo = state.objetivosAhorro.find(o => o.id === objetivoId);
+            if (objetivo && monto > 0) {
+                objetivo.montoAhorrado = parseFloat(objetivo.montoAhorrado || 0) + parseFloat(monto);
+                guardarEstado();
+                render();
+            }
+        }
+
+        function agregarCategoria() {
+            const nuevaCategoria = document.getElementById('nueva-categoria').value;
+            if (nuevaCategoria && !state.categorias.includes(nuevaCategoria)) {
+                state.categorias.push(nuevaCategoria);
+                document.getElementById('nueva-categoria').value = '';
+                guardarEstado();
+                render();
+            }
+        }
+
+        function eliminarCategoria(categoria) {
+            if (state.categorias.length > 1) {
+                state.categorias = state.categorias.filter(c => c !== categoria);
+                guardarEstado();
+                render();
+            }
+        }
+
+        function agregarCuenta() {
+            const nombre = document.getElementById('cuenta-nombre').value;
+            const tipo = document.getElementById('cuenta-tipo').value;
+            const saldo = document.getElementById('cuenta-saldo').value;
+            
+            if (nombre) {
+                const nuevoId = Math.max(...state.cuentas.map(c => c.id), 0) + 1;
+                state.cuentas.push({
+                    id: nuevoId,
+                    nombre,
+                    tipo,
+                    saldo: parseFloat(saldo || 0)
+                });
+                
+                document.getElementById('cuenta-nombre').value = '';
+                document.getElementById('cuenta-saldo').value = '';
+                
+                guardarEstado();
+                render();
+            }
+        }
+
+        function eliminarCuenta(id) {
+            if (state.cuentas.length > 1) {
+                state.cuentas = state.cuentas.filter(c => c.id !== id);
+                guardarEstado();
+                render();
+            }
+        }
+
+        function mostrarDialogoAhorroObjetivo() {
+            // Esta función se podría implementar con un modal real
+            // Por ahora solo es un placeholder
+        }
+
+        function cambiarVista(nuevaVista) {
+            state.vista = nuevaVista;
+            render();
+        }
+
+        // Función para obtener datos del gráfico por período
+        function obtenerDatosGraficoPeriodo() {
+            const { inicioPeriodo, finPeriodo } = obtenerPeriodoPagoActual();
+            
+            const gastosDelPeriodo = state.gastos.filter(gasto => {
+                const fechaGasto = new Date(gasto.fecha);
+                return fechaGasto >= inicioPeriodo && fechaGasto <= finPeriodo;
+            });
+            
+            const gastosPorCategoria = {};
+            gastosDelPeriodo.forEach(gasto => {
+                const categoria = gasto.categoria || 'Otros';
+                gastosPorCategoria[categoria] = (gastosPorCategoria[categoria] || 0) + parseFloat(gasto.monto);
+            });
+            
+            return Object.entries(gastosPorCategoria).map(([nombre, valor]) => ({
+                nombre,
+                valor
+            }));
+        }
+
+        // Función principal de renderizado
+        function render() {
+            // Procesar gastos recurrentes si es necesario
+            procesarGastosRecurrentes();
+            
+            // Recalcular saldos
+            recalcularSaldosCuentas();
+            
+            const app = document.getElementById('app');
+            const stats = calcularEstadisticas();
+            const proyecciones = calcularProyecciones();
+
+            verificarAlertas();
+
+            // Renderizar botones de navegación
+            const navButtons = document.getElementById('nav-buttons');
+            navButtons.innerHTML = `
+                <button onclick="cambiarVista('principal')" class="btn-neon px-4 py-2 rounded-xl font-bold text-sm transition-all ${state.vista === 'principal' ? 'bg-purple-600' : 'bg-purple-600/50'}">
+                    🏠 Principal
+                </button>
+                <button onclick="cambiarVista('dinheiros')" class="btn-neon px-4 py-2 rounded-xl font-bold text-sm transition-all ${state.vista === 'dinheiros' ? 'bg-purple-600' : 'bg-purple-600/50'}">
+                    💰 Diñeiros
+                </button>
+                <button onclick="cambiarVista('estadisticas')" class="btn-neon px-4 py-2 rounded-xl font-bold text-sm transition-all ${state.vista === 'estadisticas' ? 'bg-purple-600' : 'bg-purple-600/50'}">
+                    📊 Stats
+                </button>
+                <button onclick="cambiarVista('objetivos')" class="btn-neon px-4 py-2 rounded-xl font-bold text-sm transition-all ${state.vista === 'objetivos' ? 'bg-purple-600' : 'bg-purple-600/50'}">
+                    🎯 Objetivos
+                </button>
+                <button onclick="cambiarVista('categorias')" class="btn-neon px-4 py-2 rounded-xl font-bold text-sm transition-all ${state.vista === 'categorias' ? 'bg-purple-600' : 'bg-purple-600/50'}">
+                    📁 Categorías
+                </button>
+                <button onclick="cambiarVista('configuracion')" class="btn-neon px-4 py-2 rounded-xl font-bold text-sm transition-all ${state.vista === 'configuracion' ? 'bg-purple-600' : 'bg-purple-600/50'}">
+                    ⚙️ Config
+                </button>
+            `;
+
+            let html = `
+                <div class="max-w-7xl mx-auto">
+                    <!-- Alertas -->
+                    ${state.alertasMostradas.length > 0 ? `
+                        <div class="mb-6 space-y-3">
+                            ${state.alertasMostradas.map(alerta => `
+                                <div class="card-neon rounded-xl p-4 ${
+                                    alerta.tipo === 'danger' ? 'border-red-500' : 
+                                    alerta.tipo === 'warning' ? 'border-yellow-500' : 
+                                    'border-blue-500'
+                                }">
+                                    <p class="text-white">${alerta.mensaje}</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+            `;
+
+            // Vista Principal
+            if (state.vista === 'principal') {
+                html += `
+                    <!-- Gasto Disponible por Día -->
+                    <div class="flex justify-center mb-8">
+                        <div class="stat-card rounded-3xl p-12 border-4 border-pink-500/50 max-w-2xl w-full text-center pulse-animation">
+                            <div class="flex items-center justify-center mb-4">
+                                <span class="text-6xl">📅</span>
+                            </div>
+                            <h2 class="text-2xl font-bold text-gray-300 mb-4">Puedes Gastar Hoy</h2>
+                            <p class="text-7xl md:text-8xl font-black text-yellow-400 mb-2">${stats.gastoPorDiaRestante.toFixed(2)}€</p>
+                            <p class="text-gray-400 text-lg">Te quedan ${stats.diasRestantes} días hasta cobrar</p>
+                            ${stats.ahorroDiarioNecesario > 0 ? `
+                                <div class="mt-6 pt-6 border-t border-purple-500/30">
+                                    <p class="text-cyan-400 text-xl">
+                                        💡 Intenta ahorrar ${stats.ahorroDiarioNecesario.toFixed(2)}€ hoy para tus objetivos
+                                    </p>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Proyecciones e Inteligencia Financiera -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                        <div class="card-neon rounded-2xl p-6">
+                            <h3 class="text-xl font-bold text-white mb-4">🔮 Proyección a 3 Meses</h3>
+                            <p class="text-gray-400 mb-2">Si mantienes este ritmo:</p>
+                            <p class="text-3xl font-black text-green-400">+${proyecciones.proyeccion3Meses.toFixed(2)}€</p>
+                            <p class="text-gray-400 text-sm mt-2">Ahorro mensual: ${proyecciones.ahorroMensualActual.toFixed(2)}€</p>
+                        </div>
+
+                        ${proyecciones.recomendacion ? `
+                            <div class="card-neon rounded-2xl p-6">
+                                <h3 class="text-xl font-bold text-white mb-4">💡 Recomendación</h3>
+                                <p class="text-gray-400 mb-2">Si reduces un 10% en <span class="text-yellow-400 font-semibold">${proyecciones.recomendacion.categoria}</span>:</p>
+                                <p class="text-2xl font-bold text-green-400">+${proyecciones.recomendacion.ahorroPotencial.toFixed(2)}€/mes</p>
+                                ${proyecciones.recomendacion.objetivo ? `
+                                    <p class="text-sm text-gray-400 mt-2">
+                                        Lograrías "${proyecciones.recomendacion.objetivo.nombre}" ${proyecciones.recomendacion.objetivo.diasMejor} días antes
+                                    </p>
+                                ` : ''}
+                            </div>
+                        ` : ''}
+                    </div>
+
+                    <!-- Gastos Variables Rápido -->
+                    <div class="card-neon rounded-2xl p-6 mb-8">
+                        <h2 class="text-2xl font-bold mb-6 text-white">💸 Agregar Gasto Rápido</h2>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                            <input 
+                                type="text"
+                                id="gasto-descripcion"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                                placeholder="Descripción"
+                                onkeyup="if(event.key==='Enter') agregarGasto()"
+                            />
+                            <input 
+                                type="number"
+                                id="gasto-monto"
+                                step="0.01"
+                                min="0"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                                placeholder="Monto (€)"
+                                onkeyup="if(event.key==='Enter') agregarGasto()"
+                            />
+                            <select 
+                                id="gasto-categoria"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                            >
+                                ${state.categorias.map(cat => `<option value="${cat}">${cat}</option>`).join('')}
+                            </select>
+                            <select 
+                                id="gasto-cuenta"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                            >
+                                ${state.cuentas.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('')}
+                            </select>
+                            <button 
+                                onclick="agregarGasto()"
+                                class="btn-neon bg-gradient-to-r from-pink-600 to-red-600 px-6 py-3 rounded-xl font-bold"
+                            >
+                                ➕ Agregar
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Últimos Gastos -->
+                    ${state.gastos.length > 0 ? `
+                        <div class="card-neon rounded-2xl p-6">
+                            <h3 class="text-xl font-bold text-white mb-4">📝 Últimos Gastos</h3>
+                            <div class="space-y-2">
+                                ${state.gastos.slice().reverse().slice(0, 5).map(gasto => {
+                                    const fecha = new Date(gasto.fecha);
+                                    const cuenta = state.cuentas.find(c => c.id === gasto.cuentaId);
+                                    return `
+                                        <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-3">
+                                            <div class="flex-1">
+                                                <div class="flex items-center gap-2">
+                                                    <div 
+                                                        class="w-3 h-3 rounded-full"
+                                                        style="background-color: ${obtenerColorCategoria(gasto.categoria || 'Otros')}"
+                                                    ></div>
+                                                    <span class="text-white font-semibold">${gasto.descripcion}</span>
+                                                </div>
+                                                <p class="text-gray-400 text-xs mt-1">${fecha.toLocaleDateString('es-ES')} - ${cuenta ? cuenta.nombre : 'Sin cuenta'}</p>
+                                            </div>
+                                            <div class="flex items-center gap-4">
+                                                <span class="text-red-400 font-bold">${parseFloat(gasto.monto).toFixed(2)}€</span>
+                                                <button 
+                                                    onclick="eliminarGasto(${gasto.id})"
+                                                    class="delete-btn text-red-500 hover:text-red-400 transition-colors"
+                                                >
+                                                    ❌
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                `;
+            }
+            // Vista de Diñeiros
+            else if (state.vista === 'dinheiros') {
+                html += `
+                    <!-- Estadísticas Completas -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                        <div class="stat-card rounded-2xl p-6 border-2 border-purple-500/30">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-gray-400 text-sm">Disponible Total</span>
+                                <span class="text-2xl">💰</span>
+                            </div>
+                            <p class="text-4xl font-black text-green-400">${stats.disponibleTotal.toFixed(2)}€</p>
+                        </div>
+
+                        <div class="stat-card rounded-2xl p-6 border-2 border-pink-500/30">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-gray-400 text-sm">Gasto por Día</span>
+                                <span class="text-2xl">📅</span>
+                            </div>
+                            <p class="text-4xl font-black text-yellow-400">${stats.gastoPorDiaRestante.toFixed(2)}€</p>
+                        </div>
+
+                        <div class="stat-card rounded-2xl p-6 border-2 border-blue-500/30">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-gray-400 text-sm">Días Restantes</span>
+                                <span class="text-2xl">⏰</span>
+                            </div>
+                            <p class="text-4xl font-black text-blue-400">${stats.diasRestantes}</p>
+                        </div>
+
+                        <div class="stat-card rounded-2xl p-6 border-2 border-red-500/30">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-gray-400 text-sm">Gastos del Período</span>
+                                <span class="text-2xl">💸</span>
+                            </div>
+                            <p class="text-4xl font-black text-red-400">${stats.totalGastos.toFixed(2)}€</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                        <div class="stat-card rounded-2xl p-6 border-2 border-green-500/30">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-gray-400 text-sm">Ingresos Totales</span>
+                                <span class="text-2xl">💵</span>
+                            </div>
+                            <p class="text-3xl font-black text-green-400">+${stats.ingresoTotal.toFixed(2)}€</p>
+                            <p class="text-gray-400 text-xs mt-2">Sueldo: ${parseFloat(state.sueldo || 0).toFixed(2)}€ | Extras: ${stats.totalIngresos.toFixed(2)}€</p>
+                        </div>
+
+                        <div class="stat-card rounded-2xl p-6 border-2 border-orange-500/30">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-gray-400 text-sm">Gastos Fijos</span>
+                                <span class="text-2xl">🏠</span>
+                            </div>
+                            <p class="text-3xl font-black text-orange-400">-${stats.totalGastosFijos.toFixed(2)}€</p>
+                        </div>
+                    </div>
+
+                    <!-- Estado de Cuentas -->
+                    <div class="card-neon rounded-2xl p-6 mb-8">
+                        <h3 class="text-xl font-bold text-white mb-4">💳 Estado de Cuentas</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            ${state.cuentas.map(cuenta => `
+                                <div class="bg-black/30 rounded-xl p-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-white font-semibold">${cuenta.nombre}</span>
+                                        <span class="text-xs text-gray-400">${cuenta.tipo === 'banco' ? '🏦' : cuenta.tipo === 'efectivo' ? '💵' : '💳'}</span>
+                                    </div>
+                                    <p class="text-2xl font-black ${cuenta.saldo >= 0 ? 'text-green-400' : 'text-red-400'}">
+                                        ${cuenta.saldo.toFixed(2)}€
+                                    </p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Ingresos Puntuales -->
+                    <div class="card-neon rounded-2xl p-6 mb-8">
+                        <h2 class="text-2xl font-bold mb-6 text-white">💵 Agregar Ingreso</h2>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                            <input 
+                                type="text"
+                                id="ingreso-descripcion"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                                placeholder="Descripción"
+                                onkeyup="if(event.key==='Enter') agregarIngreso()"
+                            />
+                            <input 
+                                type="number"
+                                id="ingreso-monto"
+                                step="0.01"
+                                min="0"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                                placeholder="Monto (€)"
+                                onkeyup="if(event.key==='Enter') agregarIngreso()"
+                            />
+                            <select 
+                                id="ingreso-cuenta"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                            >
+                                ${state.cuentas.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('')}
+                            </select>
+                            <button 
+                                onclick="agregarIngreso()"
+                                class="btn-neon bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 rounded-xl font-bold"
+                            >
+                                ➕ Agregar
+                            </button>
+                        </div>
+
+                        ${state.ingresos.length > 0 ? `
+                            <div class="space-y-2">
+                                ${state.ingresos.slice().reverse().slice(0, 5).map(ingreso => {
+                                    const fecha = new Date(ingreso.fecha);
+                                    const cuenta = state.cuentas.find(c => c.id === ingreso.cuentaId);
+                                    return `
+                                        <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-3">
+                                            <div class="flex-1">
+                                                <p class="text-white font-semibold">${ingreso.descripcion}</p>
+                                                <p class="text-gray-400 text-xs mt-1">${fecha.toLocaleDateString('es-ES')} - ${cuenta ? cuenta.nombre : 'Sin cuenta'}</p>
+                                            </div>
+                                            <div class="flex items-center gap-4">
+                                                <span class="text-green-400 font-bold">+${parseFloat(ingreso.monto).toFixed(2)}€</span>
+                                                <button 
+                                                    onclick="eliminarIngreso(${ingreso.id})"
+                                                    class="delete-btn text-red-500 hover:text-red-400 transition-colors"
+                                                >
+                                                    ❌
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        ` : '<p class="text-gray-400 text-center py-4">No hay ingresos puntuales registrados</p>'}
+                    </div>
+
+                    <!-- Todos los Gastos del Período -->
+                    <div class="card-neon rounded-2xl p-6">
+                        <h3 class="text-xl font-bold text-white mb-4">📊 Todos los Gastos del Período</h3>
+                        ${state.gastos.length > 0 ? `
+                            <div class="space-y-2 max-h-96 overflow-y-auto">
+                                ${state.gastos.slice().reverse().map(gasto => {
+                                    const fecha = new Date(gasto.fecha);
+                                    const cuenta = state.cuentas.find(c => c.id === gasto.cuentaId);
+                                    return `
+                                        <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-3">
+                                            <div class="flex-1">
+                                                <div class="flex items-center gap-2">
+                                                    <div 
+                                                        class="w-3 h-3 rounded-full"
+                                                        style="background-color: ${obtenerColorCategoria(gasto.categoria || 'Otros')}"
+                                                    ></div>
+                                                    <span class="text-white font-semibold">${gasto.descripcion}</span>
+                                                    ${gasto.esRecurrente ? '<span class="text-xs bg-purple-600 px-2 py-1 rounded">Recurrente</span>' : ''}
+                                                </div>
+                                                <p class="text-gray-400 text-xs mt-1">${fecha.toLocaleDateString('es-ES')} - ${gasto.categoria || 'Otros'} - ${cuenta ? cuenta.nombre : 'Sin cuenta'}</p>
+                                            </div>
+                                            <div class="flex items-center gap-4">
+                                                <span class="text-red-400 font-bold">${parseFloat(gasto.monto).toFixed(2)}€</span>
+                                                <button 
+                                                    onclick="eliminarGasto(${gasto.id})"
+                                                    class="delete-btn text-red-500 hover:text-red-400 transition-colors"
+                                                >
+                                                    ❌
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        ` : '<p class="text-gray-400 text-center py-4">No hay gastos registrados en este período</p>'}
+                    </div>
+                `;
+            }
+            // Vista de Estadísticas
+            else if (state.vista === 'estadisticas') {
+                const datosGrafico = obtenerDatosGraficoPeriodo();
+                
+                html += `
+                    <div class="space-y-8">
+                        <!-- Información del Período -->
+                        <div class="card-neon rounded-2xl p-6">
+                            <h2 class="text-2xl font-bold mb-4 text-white">📅 Período Actual</h2>
+                            <p class="text-gray-400">
+                                Del <span class="text-white font-semibold">${stats.inicioPeriodo.toLocaleDateString('es-ES')}</span> 
+                                al <span class="text-white font-semibold">${stats.finPeriodo.toLocaleDateString('es-ES')}</span>
+                            </p>
+                            <div class="grid grid-cols-2 gap-4 mt-4">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Días transcurridos</p>
+                                    <p class="text-2xl font-bold text-blue-400">${stats.diasTranscurridos}</p>
+                                </div>
+                                <div>
+                                    <p class="text-gray-400 text-sm">Días restantes</p>
+                                    <p class="text-2xl font-bold text-yellow-400">${stats.diasRestantes}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Gráfico de Pastel -->
+                        <div class="card-neon rounded-2xl p-6">
+                            <h2 class="text-2xl font-bold mb-6 text-white">📊 Distribución de Gastos por Categoría</h2>
+                            ${datosGrafico.length > 0 ? `
+                                <canvas id="pieChart" width="400" height="400"></canvas>
+                                <div class="mt-6 space-y-3">
+                                    <h3 class="text-lg font-bold text-white mb-3">Desglose por Categoría</h3>
+                                    ${datosGrafico.map(dato => {
+                                        const total = datosGrafico.reduce((sum, d) => sum + d.valor, 0);
+                                        const porcentaje = (dato.valor / total * 100).toFixed(1);
+                                        return `
+                                            <div class="flex justify-between items-center bg-black/30 rounded-xl p-3">
+                                                <div class="flex items-center gap-3 flex-1">
+                                                    <div 
+                                                        class="w-4 h-4 rounded"
+                                                        style="background-color: ${obtenerColorCategoria(dato.nombre)}"
+                                                    ></div>
+                                                    <span class="text-white font-semibold">${dato.nombre}</span>
+                                                    <span class="text-gray-400 text-sm">(${porcentaje}%)</span>
+                                                </div>
+                                                <span class="text-white font-bold">${dato.valor.toFixed(2)}€</span>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                    <div class="border-t border-purple-500/30 pt-3 flex justify-between items-center">
+                                        <span class="text-gray-300 font-bold">Total Gastos:</span>
+                                        <span class="text-red-400 font-bold text-xl">${datosGrafico.reduce((sum, d) => sum + d.valor, 0).toFixed(2)}€</span>
+                                    </div>
+                                </div>
+                            ` : '<p class="text-gray-400 text-center py-8">No hay datos suficientes para mostrar el gráfico</p>'}
+                        </div>
+
+                        <!-- Progreso del Período -->
+                        <div class="card-neon rounded-2xl p-6">
+                            <h3 class="text-xl font-bold text-white mb-4">📈 Progreso del Período</h3>
+                            <div class="mb-4">
+                                <div class="flex justify-between text-sm mb-2">
+                                    <span class="text-gray-400">Has gastado el ${stats.porcentajeGastado.toFixed(1)}% de tus ingresos</span>
+                                    <span class="text-white font-semibold">${stats.totalGastos.toFixed(2)}€ / ${stats.ingresoTotal.toFixed(2)}€</span>
+                                </div>
+                                <div class="w-full bg-gray-700 rounded-full h-4">
+                                    <div 
+                                        class="h-4 rounded-full transition-all duration-500 ${stats.porcentajeGastado > 80 ? 'bg-red-500' : stats.porcentajeGastado > 50 ? 'bg-yellow-500' : 'bg-green-500'}"
+                                        style="width: ${Math.min(stats.porcentajeGastado, 100)}%"
+                                    ></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            // Vista de Objetivos
+            else if (state.vista === 'objetivos') {
+                html += `
+                    <div class="card-neon rounded-2xl p-6">
+                        <h2 class="text-2xl font-bold mb-6 text-white">🎯 Objetivos de Ahorro</h2>
+                        
+                        ${state.objetivosAhorro.length > 0 ? `
+                            <div class="space-y-4 mb-6">
+                                ${state.objetivosAhorro.map(objetivo => {
+                                    const progreso = (parseFloat(objetivo.montoAhorrado || 0) / parseFloat(objetivo.metaMonto)) * 100;
+                                    const fechaLimite = new Date(objetivo.fechaLimite);
+                                    const diasRestantes = Math.ceil((fechaLimite - new Date()) / (1000 * 60 * 60 * 24));
+                                    
+                                    return `
+                                        <div class="bg-black/30 rounded-xl p-6">
+                                            <div class="flex justify-between items-start mb-4">
+                                                <div class="flex-1">
+                                                    <h3 class="text-white font-bold text-lg mb-1">${objetivo.nombre}</h3>
+                                                    <p class="text-gray-400 text-sm">Fecha límite: ${fechaLimite.toLocaleDateString('es-ES')} (${diasRestantes} días)</p>
+                                                </div>
+                                                <button 
+                                                    onclick="eliminarObjetivo(${objetivo.id})"
+                                                    class="text-red-500 hover:text-red-400 transition-colors"
+                                                >
+                                                    ❌
+                                                </button>
+                                            </div>
+                                            
+                                            <div class="mb-3">
+                                                <div class="flex justify-between text-sm mb-2">
+                                                    <span class="text-gray-400">Progreso: ${progreso.toFixed(1)}%</span>
+                                                    <span class="text-white font-semibold">${parseFloat(objetivo.montoAhorrado || 0).toFixed(2)}€ / ${parseFloat(objetivo.metaMonto).toFixed(2)}€</span>
+                                                </div>
+                                                <div class="w-full bg-gray-700 rounded-full h-3">
+                                                    <div 
+                                                        class="h-3 rounded-full transition-all duration-500"
+                                                        style="width: ${Math.min(progreso, 100)}%; background: linear-gradient(90deg, #8338EC, #FF006E);"
+                                                    ></div>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="flex gap-2">
+                                                <input 
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    class="input-neon flex-1 px-4 py-2 rounded-xl text-white"
+                                                    placeholder="Añadir ahorro"
+                                                    id="ahorro-${objetivo.id}"
+                                                    onkeyup="if(event.key==='Enter') { const monto = parseFloat(this.value || 0); if (monto > 0) { anadirAhorroObjetivo(${objetivo.id}, monto); this.value = ''; }}"
+                                                />
+                                                <button 
+                                                    onclick="
+                                                        const input = document.getElementById('ahorro-${objetivo.id}');
+                                                        const monto = parseFloat(input.value || 0);
+                                                        if (monto > 0) {
+                                                            anadirAhorroObjetivo(${objetivo.id}, monto);
+                                                            input.value = '';
+                                                        }
+                                                    "
+                                                    class="btn-neon bg-green-600 px-6 py-2 rounded-xl font-bold"
+                                                >
+                                                    💰 Añadir
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        ` : '<p class="text-gray-400 text-center py-4 mb-6">No hay objetivos de ahorro definidos</p>'}
+
+                        <h3 class="text-xl font-bold mb-4 text-white">➕ Nuevo Objetivo</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <input 
+                                type="text"
+                                id="objetivo-nombre"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                                placeholder="Nombre del objetivo"
+                            />
+                            <input 
+                                type="number"
+                                id="objetivo-meta"
+                                step="0.01"
+                                min="0"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                                placeholder="Meta (€)"
+                            />
+                            <input 
+                                type="date"
+                                id="objetivo-fecha"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                            />
+                            <button 
+                                onclick="agregarObjetivo()"
+                                class="btn-neon bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl font-bold"
+                            >
+                                🎯 Crear Objetivo
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+            // Vista de Categorías
+            else if (state.vista === 'categorias') {
+                html += `
+                    <div class="card-neon rounded-2xl p-6">
+                        <h2 class="text-2xl font-bold mb-6 text-white">📁 Gestión de Categorías</h2>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                            ${state.categorias.map(categoria => `
+                                <div class="bg-black/30 rounded-xl p-4 flex justify-between items-center">
+                                    <div class="flex items-center gap-3">
+                                        <div 
+                                            class="w-4 h-4 rounded"
+                                            style="background-color: ${obtenerColorCategoria(categoria)}"
+                                        ></div>
+                                        <span class="text-white font-semibold">${categoria}</span>
+                                    </div>
+                                    ${state.categorias.length > 1 ? `
+                                        <button 
+                                            onclick="eliminarCategoria('${categoria}')"
+                                            class="text-red-500 hover:text-red-400 transition-colors"
+                                        >
+                                            ❌
+                                        </button>
+                                    ` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+
+                        <div class="flex gap-4">
+                            <input 
+                                type="text"
+                                id="nueva-categoria"
+                                class="input-neon flex-1 px-4 py-3 rounded-xl text-white"
+                                placeholder="Nueva categoría"
+                                onkeyup="if(event.key==='Enter') agregarCategoria()"
+                            />
+                            <button 
+                                onclick="agregarCategoria()"
+                                class="btn-neon bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl font-bold"
+                            >
+                                ➕ Agregar Categoría
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+            // Vista de Configuración
+            else if (state.vista === 'configuracion') {
+                html += `
+                    <div class="space-y-6">
+                        <!-- Configuración Básica -->
+                        <div class="card-neon rounded-2xl p-6">
+                            <h2 class="text-2xl font-bold mb-6 text-white">⚙️ Configuración Básica</h2>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label class="text-gray-300 block mb-2 font-semibold">💵 Sueldo Mensual</label>
+                                    <input 
+                                        type="number" 
+                                        step="0.01"
+                                        min="0"
+                                        class="input-neon w-full px-4 py-3 rounded-xl text-white"
+                                        value="${state.sueldo}"
+                                        oninput="state.sueldo = this.value; guardarEstadoDebounce();"
+                                        onblur="guardarEstado(); render();"
+                                        placeholder="Ej: 2000"
+                                    />
+                                </div>
+                                <div>
+                                    <label class="text-gray-300 block mb-2 font-semibold">📅 Día de Cobro</label>
+                                    <input 
+                                        type="number" 
+                                        min="1" 
+                                        max="31"
+                                        class="input-neon w-full px-4 py-3 rounded-xl text-white"
+                                        value="${state.diaCobro}"
+                                        oninput="state.diaCobro = this.value; guardarEstadoDebounce();"
+                                        onblur="guardarEstado(); render();"
+                                        placeholder="Ej: 1"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Gastos Fijos -->
+                        <div class="card-neon rounded-2xl p-6">
+                            <h2 class="text-2xl font-bold mb-6 text-white">🏠 Gastos Fijos Mensuales</h2>
+                            
+                            ${state.gastosFijos.length > 0 ? `
+                                <div class="space-y-3 mb-6">
+                                    ${state.gastosFijos.map(gasto => `
+                                        <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-4">
+                                            <div class="flex-1">
+                                                <p class="text-white font-semibold">${gasto.nombre}</p>
+                                            </div>
+                                            <div class="flex items-center gap-4">
+                                                <span class="text-red-400 font-bold text-lg">${parseFloat(gasto.monto).toFixed(2)}€</span>
+                                                <button 
+                                                    onclick="eliminarGastoFijo(${gasto.id})"
+                                                    class="delete-btn text-red-500 hover:text-red-400 transition-colors"
+                                                >
+                                                    ❌
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                    <div class="border-t border-purple-500/30 pt-3 flex justify-between items-center">
+                                        <span class="text-gray-300 font-bold">Total Gastos Fijos:</span>
+                                        <span class="text-red-400 font-bold text-xl">${state.gastosFijos.reduce((sum, g) => sum + parseFloat(g.monto || 0), 0).toFixed(2)}€</span>
+                                    </div>
+                                </div>
+                            ` : '<p class="text-gray-400 text-center py-4 mb-6">No hay gastos fijos registrados</p>'}
+
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <input 
+                                    type="text"
+                                    id="gasto-fijo-nombre"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                    placeholder="Nombre del gasto"
+                                    onkeyup="if(event.key==='Enter') { document.getElementById('gasto-fijo-monto').focus(); }"
+                                />
+                                <input 
+                                    type="number"
+                                    id="gasto-fijo-monto"
+                                    step="0.01"
+                                    min="0"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                    placeholder="Monto (€)"
+                                    onkeyup="if(event.key==='Enter') agregarGastoFijo()"
+                                />
+                                <button 
+                                    onclick="agregarGastoFijo()"
+                                    class="btn-neon bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl font-bold"
+                                >
+                                    ➕ Agregar Gasto Fijo
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Gastos Recurrentes -->
+                        <div class="card-neon rounded-2xl p-6">
+                            <h2 class="text-2xl font-bold mb-6 text-white">🔄 Gastos Recurrentes (Automáticos)</h2>
+                            <p class="text-gray-400 text-sm mb-4">Estos gastos se añadirán automáticamente al inicio de cada período de pago</p>
+                            
+                            ${state.gastosRecurrentes.length > 0 ? `
+                                <div class="space-y-3 mb-6">
+                                    ${state.gastosRecurrentes.map(gasto => {
+                                        const cuenta = state.cuentas.find(c => c.id === gasto.cuentaId);
+                                        return `
+                                            <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-4">
+                                                <div class="flex-1">
+                                                    <p class="text-white font-semibold">${gasto.nombre}</p>
+                                                    <p class="text-gray-400 text-sm">${gasto.categoria} - ${cuenta ? cuenta.nombre : 'Sin cuenta'}</p>
+                                                </div>
+                                                <div class="flex items-center gap-4">
+                                                    <span class="text-red-400 font-bold text-lg">${parseFloat(gasto.monto).toFixed(2)}€</span>
+                                                    <button 
+                                                        onclick="eliminarGastoRecurrente(${gasto.id})"
+                                                        class="delete-btn text-red-500 hover:text-red-400 transition-colors"
+                                                    >
+                                                        ❌
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            ` : '<p class="text-gray-400 text-center py-4 mb-6">No hay gastos recurrentes configurados</p>'}
+
+                            <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                                <input 
+                                    type="text"
+                                    id="gasto-rec-nombre"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                    placeholder="Nombre (ej: Netflix)"
+                                />
+                                <input 
+                                    type="number"
+                                    id="gasto-rec-monto"
+                                    step="0.01"
+                                    min="0"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                    placeholder="Monto (€)"
+                                />
+                                <select 
+                                    id="gasto-rec-categoria"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                >
+                                    ${state.categorias.map(cat => `<option value="${cat}">${cat}</option>`).join('')}
+                                </select>
+                                <select 
+                                    id="gasto-rec-cuenta"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                >
+                                    ${state.cuentas.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('')}
+                                </select>
+                                <button 
+                                    onclick="agregarGastoRecurrente()"
+                                    class="btn-neon bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl font-bold"
+                                >
+                                    ➕ Agregar
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Ajustes -->
+                        <div class="card-neon rounded-2xl p-6">
+                            <h2 class="text-2xl font-bold mb-6 text-white">⚖️ Ajustes (Correcciones)</h2>
+                            <p class="text-gray-400 text-sm mb-4">Usa ajustes para corregir diferencias o añadir movimientos especiales</p>
+                            
+                            ${state.ajustes.length > 0 ? `
+                                <div class="space-y-3 mb-6 max-h-60 overflow-y-auto">
+                                    ${state.ajustes.slice().reverse().map(ajuste => {
+                                        const fecha = new Date(ajuste.fecha);
+                                        const cuenta = state.cuentas.find(c => c.id === ajuste.cuentaId);
+                                        return `
+                                            <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-4">
+                                                <div class="flex-1">
+                                                    <p class="text-white font-semibold">${ajuste.descripcion}</p>
+                                                    <p class="text-gray-400 text-sm mt-1">${fecha.toLocaleDateString('es-ES')} - ${cuenta ? cuenta.nombre : 'Sin cuenta'}</p>
+                                                </div>
+                                                <div class="flex items-center gap-4">
+                                                    <span class="font-bold text-lg ${ajuste.tipo === 'positivo' ? 'text-green-400' : 'text-red-400'}">
+                                                        ${ajuste.tipo === 'positivo' ? '+' : '-'}${parseFloat(ajuste.monto).toFixed(2)}€
+                                                    </span>
+                                                    <button 
+                                                        onclick="
+                                                            const ajuste = state.ajustes.find(a => a.id === ${ajuste.id});
+                                                            if (ajuste) {
+                                                                actualizarSaldoCuenta(ajuste.cuentaId, ajuste.monto, ajuste.tipo === 'positivo' ? 'gasto' : 'ingreso');
+                                                                state.ajustes = state.ajustes.filter(a => a.id !== ${ajuste.id});
+                                                                guardarEstado();
+                                                                render();
+                                                            }
+                                                        "
+                                                        class="delete-btn text-red-500 hover:text-red-400 transition-colors"
+                                                    >
+                                                        ❌
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            ` : '<p class="text-gray-400 text-center py-4 mb-6">No hay ajustes registrados</p>'}
+
+                            <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                                <input 
+                                    type="text"
+                                    id="ajuste-descripcion"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                    placeholder="Descripción"
+                                />
+                                <input 
+                                    type="number"
+                                    id="ajuste-monto"
+                                    step="0.01"
+                                    min="0"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                    placeholder="Monto (€)"
+                                />
+                                <select 
+                                    id="ajuste-tipo"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                >
+                                    <option value="positivo">➕ Positivo</option>
+                                    <option value="negativo">➖ Negativo</option>
+                                </select>
+                                <select 
+                                    id="ajuste-cuenta"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                >
+                                    ${state.cuentas.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('')}
+                                </select>
+                                <button 
+                                    onclick="
+                                        const descripcion = document.getElementById('ajuste-descripcion').value;
+                                        const monto = document.getElementById('ajuste-monto').value;
+                                        const tipo = document.getElementById('ajuste-tipo').value;
+                                        const cuentaId = parseInt(document.getElementById('ajuste-cuenta').value);
+                                        
+                                        if (descripcion && monto && parseFloat(monto) > 0) {
+                                            state.ajustes.push({
+                                                descripcion,
+                                                monto: parseFloat(monto),
+                                                tipo,
+                                                cuentaId,
+                                                fecha: new Date().toISOString(),
+                                                id: Date.now()
+                                            });
+                                            actualizarSaldoCuenta(cuentaId, monto, tipo === 'positivo' ? 'ingreso' : 'gasto');
+                                            document.getElementById('ajuste-descripcion').value = '';
+                                            document.getElementById('ajuste-monto').value = '';
+                                            guardarEstado();
+                                            render();
+                                        }
+                                    "
+                                    class="btn-neon bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-3 rounded-xl font-bold"
+                                >
+                                    ➕ Agregar
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Gestión de Cuentas -->
+                        <div class="card-neon rounded-2xl p-6">
+                            <h2 class="text-2xl font-bold mb-6 text-white">💳 Gestión de Cuentas</h2>
+                            
+                            ${state.cuentas.length > 0 ? `
+                                <div class="space-y-3 mb-6">
+                                    ${state.cuentas.map(cuenta => `
+                                        <div class="bg-black/30 rounded-xl p-4 flex justify-between items-center">
+                                            <div>
+                                                <p class="text-white font-semibold">${cuenta.nombre}</p>
+                                                <p class="text-gray-400 text-sm">${cuenta.tipo === 'banco' ? '🏦 Banco' : cuenta.tipo === 'efectivo' ? '💵 Efectivo' : '💳 Tarjeta'}</p>
+                                            </div>
+                                            <div class="flex items-center gap-4">
+                                                <span class="text-white font-bold ${cuenta.saldo >= 0 ? 'text-green-400' : 'text-red-400'}">${cuenta.saldo.toFixed(2)}€</span>
+                                                ${state.cuentas.length > 1 ? `
+                                                    <button 
+                                                        onclick="eliminarCuenta(${cuenta.id})"
+                                                        class="text-red-500 hover:text-red-400 transition-colors"
+                                                    >
+                                                        ❌
+                                                    </button>
+                                                ` : ''}
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                <input 
+                                    type="text"
+                                    id="cuenta-nombre"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                    placeholder="Nombre de la cuenta"
+                                />
+                                <select 
+                                    id="cuenta-tipo"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                >
+                                    <option value="banco">🏦 Banco</option>
+                                    <option value="efectivo">💵 Efectivo</option>
+                                    <option value="tarjeta">💳 Tarjeta</option>
+                                </select>
+                                <input 
+                                    type="number"
+                                    id="cuenta-saldo"
+                                    step="0.01"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                    placeholder="Saldo inicial (€)"
+                                />
+                                <button 
+                                    onclick="agregarCuenta()"
+                                    class="btn-neon bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl font-bold"
+                                >
+                                    ➕ Agregar Cuenta
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Configuración de Alertas -->
+                        <div class="card-neon rounded-2xl p-6">
+                            <h2 class="text-2xl font-bold mb-6 text-white">🔔 Configuración de Alertas</h2>
+                            
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="text-gray-300 block mb-2 font-semibold">Días antes de cobro para alertar</label>
+                                    <input 
+                                        type="number"
+                                        min="0"
+                                        class="input-neon w-full px-4 py-3 rounded-xl text-white"
+                                        value="${state.alertasConfig.diasParaCobro}"
+                                        oninput="state.alertasConfig.diasParaCobro = parseInt(this.value); guardarEstadoDebounce();"
+                                        onblur="guardarEstado(); verificarAlertas(); render();"
+                                    />
+                                </div>
+                                
+                                <div>
+                                    <label class="text-gray-300 block mb-2 font-semibold">% de gasto máximo antes de mitad del período</label>
+                                    <input 
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        class="input-neon w-full px-4 py-3 rounded-xl text-white"
+                                        value="${state.alertasConfig.porcentajeGastoMitadMes}"
+                                        oninput="state.alertasConfig.porcentajeGastoMitadMes = parseInt(this.value); guardarEstadoDebounce();"
+                                        onblur="guardarEstado(); verificarAlertas(); render();"
+                                    />
+                                </div>
+
+                                <div class="flex items-center gap-3">
+                                    <input 
+                                        type="checkbox"
+                                        id="alertas-objetivos"
+                                        ${state.alertasConfig.alertaObjetivosEnRiesgo ? 'checked' : ''}
+                                        onchange="state.alertasConfig.alertaObjetivosEnRiesgo = this.checked; guardarEstado(); verificarAlertas(); render();"
+                                        class="w-5 h-5"
+                                    />
+                                    <label for="alertas-objetivos" class="text-gray-300 font-semibold">Alertar cuando objetivos estén en riesgo</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            html += `</div>`;
+            app.innerHTML = html;
+
+            // Inicializar iconos de Lucide
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+
+            // Crear gráficos si estamos en la vista de estadísticas
+            if (state.vista === 'estadisticas') {
+                setTimeout(() => {
+                    const datosGrafico = obtenerDatosGraficoPeriodo();
+                    if (datosGrafico.length > 0) {
+                        const pieCtx = document.getElementById('pieChart');
+                        if (pieCtx) {
+                            new Chart(pieCtx, {
+                                type: 'pie',
+                                data: {
+                                    labels: datosGrafico.map(d => d.nombre),
+                                    datasets: [{
+                                        data: datosGrafico.map(d => d.valor),
+                                        backgroundColor: datosGrafico.map(d => obtenerColorCategoria(d.nombre)),
+                                        borderWidth: 2,
+                                        borderColor: '#0f0f23'
+                                    }]
+                                },
+                                options: {
+                                    responsive: true,
+                                    maintainAspectRatio: true,
+                                    plugins: {
+                                        legend: {
+                                            position: 'bottom',
+                                            labels: {
+                                                color: '#ffffff',
+                                                padding: 15,
+                                                font: {
+                                                    size: 12
+                                                }
+                                            }
+                                        },
+                                        tooltip: {
+                                            callbacks: {
+                                                label: function(context) {
+                                                    return context.label + ': ' + context.parsed.toFixed(2) + '€';
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }, 100);
+            }
+        }
+
+        // Renderizar la aplicación inicialmente
+        render();
+    </script>
+</body>
+</html>
