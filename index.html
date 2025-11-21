@@ -107,7 +107,6 @@
             -moz-appearance: textfield;
         }
     </style>
-    <link rel="apple-touch-icon" href="apple-touch-icon.png">
 </head>
 <body class="text-white">
     <!-- Navegación Fija -->
@@ -135,7 +134,7 @@
             ajustes: JSON.parse(localStorage.getItem('ajustes') || '[]'),
             objetivosAhorro: JSON.parse(localStorage.getItem('objetivosAhorro') || '[]'),
             categorias: JSON.parse(localStorage.getItem('categorias') || '["Alimentación", "Transporte", "Entretenimiento", "Salud", "Hogar", "Ropa", "Otros"]'),
-            cuentas: JSON.parse(localStorage.getItem('cuentas') || '[{"id": 1, "nombre": "Cuenta Principal", "tipo": "banco", "saldo": 0}]'),
+            cuentas: JSON.parse(localStorage.getItem('cuentas') || '[{"id": 1, "nombre": "Cuenta Principal", "tipo": "banco", "saldoInicial": 0, "saldo": 0}]'),
             alertasConfig: JSON.parse(localStorage.getItem('alertasConfig') || '{"diasParaCobro": 3, "porcentajeGastoMitadMes": 50, "alertaObjetivosEnRiesgo": true}'),
             vista: 'principal',
             alertasMostradas: [],
@@ -144,6 +143,18 @@
         };
 
         let saveTimeout = null;
+
+        // Migración: asegurar que todas las cuentas tengan saldoInicial
+        state.cuentas.forEach(cuenta => {
+            if (cuenta.saldoInicial === undefined) {
+                cuenta.saldoInicial = cuenta.saldo || 0;
+            }
+        });
+
+        // Recalcular saldos inicialmente
+        setTimeout(() => {
+            recalcularSaldosCuentas();
+        }, 0);
 
         // Palabras clave para detección inteligente de categorías
         const palabrasClave = {
@@ -270,32 +281,42 @@
             return { inicioPeriodo, finPeriodo };
         }
 
-        // Función para actualizar saldo de cuenta
-        function actualizarSaldoCuenta(cuentaId, monto, tipo) {
+        // Función para calcular saldo actual de una cuenta
+        function calcularSaldoCuenta(cuentaId) {
             const cuenta = state.cuentas.find(c => c.id === cuentaId);
-            if (cuenta) {
-                if (tipo === 'gasto') {
-                    cuenta.saldo -= parseFloat(monto);
-                } else if (tipo === 'ingreso') {
-                    cuenta.saldo += parseFloat(monto);
+            if (!cuenta) return 0;
+            
+            let saldo = parseFloat(cuenta.saldoInicial || 0);
+            
+            // Sumar ingresos
+            state.ingresos.forEach(i => {
+                if (i.cuentaId === cuentaId) {
+                    saldo += parseFloat(i.monto);
                 }
-            }
+            });
+            
+            // Restar gastos
+            state.gastos.forEach(g => {
+                if (g.cuentaId === cuentaId) {
+                    saldo -= parseFloat(g.monto);
+                }
+            });
+            
+            // Aplicar ajustes
+            state.ajustes.forEach(a => {
+                if (a.cuentaId === cuentaId) {
+                    const monto = parseFloat(a.monto);
+                    saldo += (a.tipo === 'positivo' ? monto : -monto);
+                }
+            });
+            
+            return saldo;
         }
 
         // Función para recalcular todos los saldos de cuentas
         function recalcularSaldosCuentas() {
-            // Resetear todos los saldos a 0
-            state.cuentas.forEach(c => c.saldo = 0);
-            
-            // Aplicar todos los movimientos
-            state.gastos.forEach(g => {
-                actualizarSaldoCuenta(g.cuentaId, g.monto, 'gasto');
-            });
-            state.ingresos.forEach(i => {
-                actualizarSaldoCuenta(i.cuentaId, i.monto, 'ingreso');
-            });
-            state.ajustes.forEach(a => {
-                actualizarSaldoCuenta(a.cuentaId, a.monto, a.tipo === 'positivo' ? 'ingreso' : 'gasto');
+            state.cuentas.forEach(cuenta => {
+                cuenta.saldo = calcularSaldoCuenta(cuenta.id);
             });
         }
 
@@ -315,7 +336,7 @@
                     descripcion: `${gr.nombre} (Recurrente)`,
                     monto: gr.monto,
                     categoria: gr.categoria,
-                    cuentaId: gr.cuentaId,
+                    cuentaId: gr.cuentaId || state.cuentas[0]?.id || 1,
                     fecha: inicioPeriodo.toISOString(),
                     id: Date.now() + Math.random(),
                     esRecurrente: true
@@ -323,6 +344,7 @@
             });
             
             state.ultimaActualizacionRecurrentes = inicioPeriodoStr;
+            recalcularSaldosCuentas();
             guardarEstado();
         }
 
@@ -586,7 +608,7 @@
                 };
                 
                 state.gastos.push(nuevoGasto);
-                actualizarSaldoCuenta(cuentaId, monto, 'gasto');
+                recalcularSaldosCuentas();
                 
                 if (document.getElementById('gasto-monto')) {
                     document.getElementById('gasto-monto').value = '';
@@ -608,8 +630,8 @@
         function eliminarGasto(id) {
             const gasto = state.gastos.find(g => g.id === id);
             if (gasto) {
-                actualizarSaldoCuenta(gasto.cuentaId, -gasto.monto, 'gasto');
                 state.gastos = state.gastos.filter(g => g.id !== id);
+                recalcularSaldosCuentas();
                 guardarEstado();
                 render();
             }
@@ -625,18 +647,13 @@
 
         function guardarEdicionGasto(id) {
             const gasto = state.gastos.find(g => g.id === id);
-            const montoAnterior = gasto.monto;
-            const cuentaAnterior = gasto.cuentaId;
             
             gasto.descripcion = document.getElementById(`edit-desc-${id}`).value || 'Gasto';
             gasto.monto = parseFloat(document.getElementById(`edit-monto-${id}`).value);
             gasto.categoria = document.getElementById(`edit-cat-${id}`).value;
             gasto.cuentaId = parseInt(document.getElementById(`edit-cuenta-${id}`).value);
             
-            // Revertir movimiento anterior
-            actualizarSaldoCuenta(cuentaAnterior, -montoAnterior, 'gasto');
-            // Aplicar nuevo movimiento
-            actualizarSaldoCuenta(gasto.cuentaId, gasto.monto, 'gasto');
+            recalcularSaldosCuentas();
             
             state.editando = null;
             guardarEstado();
@@ -662,7 +679,7 @@
                     id: Date.now()
                 });
                 
-                actualizarSaldoCuenta(cuentaId, monto, 'ingreso');
+                recalcularSaldosCuentas();
                 
                 document.getElementById('ingreso-descripcion').value = '';
                 document.getElementById('ingreso-monto').value = '';
@@ -675,8 +692,8 @@
         function eliminarIngreso(id) {
             const ingreso = state.ingresos.find(i => i.id === id);
             if (ingreso) {
-                actualizarSaldoCuenta(ingreso.cuentaId, -ingreso.monto, 'ingreso');
                 state.ingresos = state.ingresos.filter(i => i.id !== id);
+                recalcularSaldosCuentas();
                 guardarEstado();
                 render();
             }
@@ -692,17 +709,12 @@
 
         function guardarEdicionIngreso(id) {
             const ingreso = state.ingresos.find(i => i.id === id);
-            const montoAnterior = ingreso.monto;
-            const cuentaAnterior = ingreso.cuentaId;
             
             ingreso.descripcion = document.getElementById(`edit-desc-${id}`).value || 'Ingreso';
             ingreso.monto = parseFloat(document.getElementById(`edit-monto-${id}`).value);
             ingreso.cuentaId = parseInt(document.getElementById(`edit-cuenta-${id}`).value);
             
-            // Revertir movimiento anterior
-            actualizarSaldoCuenta(cuentaAnterior, -montoAnterior, 'ingreso');
-            // Aplicar nuevo movimiento
-            actualizarSaldoCuenta(ingreso.cuentaId, ingreso.monto, 'ingreso');
+            recalcularSaldosCuentas();
             
             state.editando = null;
             guardarEstado();
@@ -790,7 +802,7 @@
         function agregarCuenta() {
             const nombre = document.getElementById('cuenta-nombre').value;
             const tipo = document.getElementById('cuenta-tipo').value;
-            const saldo = document.getElementById('cuenta-saldo').value;
+            const saldoInicial = document.getElementById('cuenta-saldo').value;
             
             if (nombre) {
                 const nuevoId = Math.max(...state.cuentas.map(c => c.id), 0) + 1;
@@ -798,12 +810,14 @@
                     id: nuevoId,
                     nombre,
                     tipo,
-                    saldo: parseFloat(saldo || 0)
+                    saldoInicial: parseFloat(saldoInicial || 0),
+                    saldo: parseFloat(saldoInicial || 0)
                 });
                 
                 document.getElementById('cuenta-nombre').value = '';
                 document.getElementById('cuenta-saldo').value = '';
                 
+                recalcularSaldosCuentas();
                 guardarEstado();
                 render();
             }
@@ -853,7 +867,7 @@
             // Procesar gastos recurrentes si es necesario
             procesarGastosRecurrentes();
             
-            // Recalcular saldos
+            // Recalcular saldos de cuentas
             recalcularSaldosCuentas();
             
             const app = document.getElementById('app');
@@ -1673,13 +1687,10 @@
                                                     </span>
                                                     <button 
                                                         onclick="
-                                                            const ajuste = state.ajustes.find(a => a.id === ${ajuste.id});
-                                                            if (ajuste) {
-                                                                actualizarSaldoCuenta(ajuste.cuentaId, ajuste.monto, ajuste.tipo === 'positivo' ? 'gasto' : 'ingreso');
-                                                                state.ajustes = state.ajustes.filter(a => a.id !== ${ajuste.id});
-                                                                guardarEstado();
-                                                                render();
-                                                            }
+                                                            state.ajustes = state.ajustes.filter(a => a.id !== ${ajuste.id});
+                                                            recalcularSaldosCuentas();
+                                                            guardarEstado();
+                                                            render();
                                                         "
                                                         class="delete-btn text-red-500 hover:text-red-400 transition-colors"
                                                     >
@@ -1736,7 +1747,7 @@
                                                 fecha: new Date().toISOString(),
                                                 id: Date.now()
                                             });
-                                            actualizarSaldoCuenta(cuentaId, monto, tipo === 'positivo' ? 'ingreso' : 'gasto');
+                                            recalcularSaldosCuentas();
                                             document.getElementById('ajuste-descripcion').value = '';
                                             document.getElementById('ajuste-monto').value = '';
                                             guardarEstado();
@@ -1758,12 +1769,12 @@
                                 <div class="space-y-3 mb-6">
                                     ${state.cuentas.map(cuenta => `
                                         <div class="bg-black/30 rounded-xl p-4 flex justify-between items-center">
-                                            <div>
+                                            <div class="flex-1">
                                                 <p class="text-white font-semibold">${cuenta.nombre}</p>
                                                 <p class="text-gray-400 text-sm">${cuenta.tipo === 'banco' ? '🏦 Banco' : cuenta.tipo === 'efectivo' ? '💵 Efectivo' : '💳 Tarjeta'}</p>
+                                                <p class="text-gray-400 text-xs mt-1">Inicial: ${parseFloat(cuenta.saldoInicial || 0).toFixed(2)}€ → Actual: <span class="${cuenta.saldo >= 0 ? 'text-green-400' : 'text-red-400'}">${cuenta.saldo.toFixed(2)}€</span></p>
                                             </div>
                                             <div class="flex items-center gap-4">
-                                                <span class="text-white font-bold ${cuenta.saldo >= 0 ? 'text-green-400' : 'text-red-400'}">${cuenta.saldo.toFixed(2)}€</span>
                                                 ${state.cuentas.length > 1 ? `
                                                     <button 
                                                         onclick="eliminarCuenta(${cuenta.id})"
