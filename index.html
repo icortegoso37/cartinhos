@@ -107,7 +107,6 @@
             -moz-appearance: textfield;
         }
     </style>
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
 </head>
 <body class="text-white">
     <!-- Navegación Fija -->
@@ -129,7 +128,6 @@
         let state = {
             sueldo: localStorage.getItem('sueldo') || '',
             diaCobro: localStorage.getItem('diaCobro') || '',
-            gastosFijos: JSON.parse(localStorage.getItem('gastosFijos') || '[]'),
             gastosRecurrentes: JSON.parse(localStorage.getItem('gastosRecurrentes') || '[]'),
             gastos: JSON.parse(localStorage.getItem('gastos') || '[]'),
             ingresos: JSON.parse(localStorage.getItem('ingresos') || '[]'),
@@ -140,10 +138,21 @@
             alertasConfig: JSON.parse(localStorage.getItem('alertasConfig') || '{"diasParaCobro": 3, "porcentajeGastoMitadMes": 50, "alertaObjetivosEnRiesgo": true}'),
             vista: 'principal',
             alertasMostradas: [],
-            ultimaActualizacionRecurrentes: localStorage.getItem('ultimaActualizacionRecurrentes') || ''
+            ultimaActualizacionRecurrentes: localStorage.getItem('ultimaActualizacionRecurrentes') || '',
+            editando: null // Para trackear qué elemento se está editando
         };
 
         let saveTimeout = null;
+
+        // Palabras clave para detección inteligente de categorías
+        const palabrasClave = {
+            'Alimentación': ['supermercado', 'mercado', 'mercadona', 'carrefour', 'lidl', 'aldi', 'dia', 'comida', 'cena', 'desayuno', 'almuerzo', 'restaurante', 'bar', 'cafetería', 'café', 'pizza', 'hamburgues', 'mcdonalds', 'burger', 'kfc', 'telepizza'],
+            'Transporte': ['gasolina', 'diesel', 'combustible', 'bus', 'metro', 'taxi', 'uber', 'cabify', 'parking', 'aparcamiento', 'peaje', 'tren', 'renfe', 'avión', 'vueling', 'ryanair'],
+            'Entretenimiento': ['cine', 'teatro', 'concierto', 'netflix', 'spotify', 'hbo', 'disney', 'prime', 'youtube', 'juego', 'videojuego', 'steam', 'playstation', 'xbox', 'ocio'],
+            'Salud': ['farmacia', 'médico', 'doctor', 'hospital', 'clínica', 'medicamento', 'medicina', 'seguro', 'gimnasio', 'deporte', 'fitness'],
+            'Hogar': ['alquiler', 'hipoteca', 'luz', 'agua', 'gas', 'internet', 'wifi', 'móvil', 'teléfono', 'ikea', 'leroy', 'bricolaje', 'ferretería', 'mueble'],
+            'Ropa': ['zara', 'hm', 'primark', 'mango', 'ropa', 'zapatillas', 'zapatos', 'calzado', 'vestido', 'pantalón', 'camisa', 'abrigo']
+        };
 
         // Función para guardar en localStorage con debounce
         function guardarEstadoDebounce() {
@@ -157,7 +166,6 @@
         function guardarEstado() {
             localStorage.setItem('sueldo', state.sueldo);
             localStorage.setItem('diaCobro', state.diaCobro);
-            localStorage.setItem('gastosFijos', JSON.stringify(state.gastosFijos));
             localStorage.setItem('gastosRecurrentes', JSON.stringify(state.gastosRecurrentes));
             localStorage.setItem('gastos', JSON.stringify(state.gastos));
             localStorage.setItem('ingresos', JSON.stringify(state.ingresos));
@@ -167,6 +175,53 @@
             localStorage.setItem('cuentas', JSON.stringify(state.cuentas));
             localStorage.setItem('alertasConfig', JSON.stringify(state.alertasConfig));
             localStorage.setItem('ultimaActualizacionRecurrentes', state.ultimaActualizacionRecurrentes);
+        }
+
+        // Función de detección inteligente de gastos
+        function parsearTextoInteligente(texto) {
+            if (!texto) return null;
+            
+            texto = texto.toLowerCase().trim();
+            
+            // Intentar detectar monto (números con posibles decimales)
+            const regexMonto = /(\d+(?:[.,]\d+)?)/g;
+            const montos = texto.match(regexMonto);
+            let monto = null;
+            
+            if (montos && montos.length > 0) {
+                // Tomar el último número como monto (ej: "supermercado 30" → 30)
+                monto = parseFloat(montos[montos.length - 1].replace(',', '.'));
+            }
+            
+            // Detectar categoría basada en palabras clave
+            let categoriaDetectada = 'Otros';
+            for (const [categoria, palabras] of Object.entries(palabrasClave)) {
+                for (const palabra of palabras) {
+                    if (texto.includes(palabra)) {
+                        categoriaDetectada = categoria;
+                        break;
+                    }
+                }
+                if (categoriaDetectada !== 'Otros') break;
+            }
+            
+            // Extraer descripción (quitar el monto del texto)
+            let descripcion = texto;
+            if (monto && montos) {
+                // Eliminar el último número del texto
+                const ultimoMonto = montos[montos.length - 1];
+                const index = descripcion.lastIndexOf(ultimoMonto);
+                if (index !== -1) {
+                    descripcion = descripcion.substring(0, index) + descripcion.substring(index + ultimoMonto.length);
+                }
+            }
+            descripcion = descripcion.trim();
+            
+            return {
+                descripcion: descripcion || 'Sin descripción',
+                monto: monto,
+                categoria: categoriaDetectada
+            };
         }
 
         // Función para obtener color por categoría
@@ -279,7 +334,8 @@
             const diasTotalesPeriodo = Math.ceil((finPeriodo - inicioPeriodo) / (1000 * 60 * 60 * 24)) + 1;
             const diasTranscurridos = diasTotalesPeriodo - diasRestantes;
             
-            const totalGastosFijos = state.gastosFijos.reduce((sum, gasto) => sum + parseFloat(gasto.monto || 0), 0);
+            // Calcular total de gastos recurrentes
+            const totalGastosRecurrentes = state.gastosRecurrentes.reduce((sum, gasto) => sum + parseFloat(gasto.monto || 0), 0);
             
             // Filtrar gastos del período actual
             const gastosDelPeriodo = state.gastos.filter(gasto => {
@@ -320,10 +376,10 @@
                 }
             });
             
-            const disponibleTotal = parseFloat(state.sueldo || 0) + totalIngresos + totalAjustes - totalGastosFijos - totalGastosVariables;
+            const disponibleTotal = parseFloat(state.sueldo || 0) + totalIngresos + totalAjustes - totalGastosRecurrentes - totalGastosVariables;
             const gastoPorDiaRestante = diasRestantes > 0 ? (disponibleTotal - (ahorroDiarioNecesario * diasRestantes)) / diasRestantes : 0;
             
-            const totalGastos = totalGastosFijos + totalGastosVariables;
+            const totalGastos = totalGastosRecurrentes + totalGastosVariables;
             const ingresoTotal = parseFloat(state.sueldo || 0) + totalIngresos;
             const porcentajeGastado = ingresoTotal > 0 ? (totalGastos / ingresoTotal) * 100 : 0;
             
@@ -331,7 +387,7 @@
                 diasRestantes,
                 diasTotalesPeriodo,
                 diasTranscurridos,
-                totalGastosFijos,
+                totalGastosRecurrentes,
                 totalGastosVariables,
                 totalIngresos,
                 totalAjustes,
@@ -468,29 +524,6 @@
         }
 
         // Funciones de gestión de datos
-        function agregarGastoFijo() {
-            const nombre = document.getElementById('gasto-fijo-nombre').value;
-            const monto = document.getElementById('gasto-fijo-monto').value;
-            
-            if (nombre && monto && parseFloat(monto) > 0) {
-                state.gastosFijos.push({
-                    nombre,
-                    monto: parseFloat(monto),
-                    id: Date.now()
-                });
-                document.getElementById('gasto-fijo-nombre').value = '';
-                document.getElementById('gasto-fijo-monto').value = '';
-                guardarEstado();
-                render();
-            }
-        }
-
-        function eliminarGastoFijo(id) {
-            state.gastosFijos = state.gastosFijos.filter(g => g.id !== id);
-            guardarEstado();
-            render();
-        }
-
         function agregarGastoRecurrente() {
             const nombre = document.getElementById('gasto-rec-nombre').value;
             const monto = document.getElementById('gasto-rec-monto').value;
@@ -519,15 +552,32 @@
         }
 
         function agregarGasto() {
-            const descripcion = document.getElementById('gasto-descripcion').value;
-            const monto = document.getElementById('gasto-monto').value;
-            const categoria = document.getElementById('gasto-categoria').value;
+            const textoInput = document.getElementById('gasto-texto');
+            const texto = textoInput ? textoInput.value : '';
+            const montoManual = document.getElementById('gasto-monto') ? document.getElementById('gasto-monto').value : '';
+            const categoriaManual = document.getElementById('gasto-categoria') ? document.getElementById('gasto-categoria').value : '';
             const cuentaId = parseInt(document.getElementById('gasto-cuenta').value);
             
-            if (descripcion && monto && parseFloat(monto) > 0) {
+            let descripcion, monto, categoria;
+            
+            // Si hay texto en el input inteligente, parsearlo
+            if (texto) {
+                const parseado = parsearTextoInteligente(texto);
+                descripcion = parseado.descripcion;
+                monto = parseado.monto || (montoManual ? parseFloat(montoManual) : null);
+                categoria = parseado.categoria;
+                textoInput.value = '';
+            } else {
+                // Usar valores manuales
+                descripcion = 'Gasto';
+                monto = montoManual ? parseFloat(montoManual) : null;
+                categoria = categoriaManual;
+            }
+            
+            if (monto && monto > 0) {
                 const nuevoGasto = {
                     descripcion,
-                    monto: parseFloat(monto),
+                    monto: monto,
                     categoria,
                     cuentaId,
                     fecha: new Date().toISOString(),
@@ -537,8 +587,9 @@
                 state.gastos.push(nuevoGasto);
                 actualizarSaldoCuenta(cuentaId, monto, 'gasto');
                 
-                document.getElementById('gasto-descripcion').value = '';
-                document.getElementById('gasto-monto').value = '';
+                if (document.getElementById('gasto-monto')) {
+                    document.getElementById('gasto-monto').value = '';
+                }
                 
                 guardarEstado();
                 verificarAlertas();
@@ -563,12 +614,45 @@
             }
         }
 
+        function editarGasto(id) {
+            const gasto = state.gastos.find(g => g.id === id);
+            if (gasto) {
+                state.editando = { tipo: 'gasto', id: id, data: {...gasto} };
+                render();
+            }
+        }
+
+        function guardarEdicionGasto(id) {
+            const gasto = state.gastos.find(g => g.id === id);
+            const montoAnterior = gasto.monto;
+            const cuentaAnterior = gasto.cuentaId;
+            
+            gasto.descripcion = document.getElementById(`edit-desc-${id}`).value || 'Gasto';
+            gasto.monto = parseFloat(document.getElementById(`edit-monto-${id}`).value);
+            gasto.categoria = document.getElementById(`edit-cat-${id}`).value;
+            gasto.cuentaId = parseInt(document.getElementById(`edit-cuenta-${id}`).value);
+            
+            // Revertir movimiento anterior
+            actualizarSaldoCuenta(cuentaAnterior, -montoAnterior, 'gasto');
+            // Aplicar nuevo movimiento
+            actualizarSaldoCuenta(gasto.cuentaId, gasto.monto, 'gasto');
+            
+            state.editando = null;
+            guardarEstado();
+            render();
+        }
+
+        function cancelarEdicion() {
+            state.editando = null;
+            render();
+        }
+
         function agregarIngreso() {
-            const descripcion = document.getElementById('ingreso-descripcion').value;
+            const descripcion = document.getElementById('ingreso-descripcion').value || 'Ingreso';
             const monto = document.getElementById('ingreso-monto').value;
             const cuentaId = parseInt(document.getElementById('ingreso-cuenta').value);
             
-            if (descripcion && monto && parseFloat(monto) > 0) {
+            if (monto && parseFloat(monto) > 0) {
                 state.ingresos.push({
                     descripcion,
                     monto: parseFloat(monto),
@@ -595,6 +679,54 @@
                 guardarEstado();
                 render();
             }
+        }
+
+        function editarIngreso(id) {
+            const ingreso = state.ingresos.find(i => i.id === id);
+            if (ingreso) {
+                state.editando = { tipo: 'ingreso', id: id, data: {...ingreso} };
+                render();
+            }
+        }
+
+        function guardarEdicionIngreso(id) {
+            const ingreso = state.ingresos.find(i => i.id === id);
+            const montoAnterior = ingreso.monto;
+            const cuentaAnterior = ingreso.cuentaId;
+            
+            ingreso.descripcion = document.getElementById(`edit-desc-${id}`).value || 'Ingreso';
+            ingreso.monto = parseFloat(document.getElementById(`edit-monto-${id}`).value);
+            ingreso.cuentaId = parseInt(document.getElementById(`edit-cuenta-${id}`).value);
+            
+            // Revertir movimiento anterior
+            actualizarSaldoCuenta(cuentaAnterior, -montoAnterior, 'ingreso');
+            // Aplicar nuevo movimiento
+            actualizarSaldoCuenta(ingreso.cuentaId, ingreso.monto, 'ingreso');
+            
+            state.editando = null;
+            guardarEstado();
+            render();
+        }
+
+        function editarGastoRecurrente(id) {
+            const gasto = state.gastosRecurrentes.find(g => g.id === id);
+            if (gasto) {
+                state.editando = { tipo: 'gastoRecurrente', id: id, data: {...gasto} };
+                render();
+            }
+        }
+
+        function guardarEdicionGastoRecurrente(id) {
+            const gasto = state.gastosRecurrentes.find(g => g.id === id);
+            
+            gasto.nombre = document.getElementById(`edit-nombre-${id}`).value;
+            gasto.monto = parseFloat(document.getElementById(`edit-monto-${id}`).value);
+            gasto.categoria = document.getElementById(`edit-cat-${id}`).value;
+            gasto.cuentaId = parseInt(document.getElementById(`edit-cuenta-${id}`).value);
+            
+            state.editando = null;
+            guardarEstado();
+            render();
         }
 
         function agregarObjetivo() {
@@ -815,33 +947,26 @@
                         ` : ''}
                     </div>
 
-                    <!-- Gastos Variables Rápido -->
+                    <!-- Gastos Variables Rápido con Parser Inteligente -->
                     <div class="card-neon rounded-2xl p-6 mb-8">
-                        <h2 class="text-2xl font-bold mb-6 text-white">💸 Agregar Gasto Rápido</h2>
+                        <h2 class="text-2xl font-bold mb-4 text-white">💸 Agregar Gasto Rápido</h2>
+                        <p class="text-gray-400 text-sm mb-4">💡 Escribe directo: "supermercado 30" o "gasolina 45.50"</p>
                         
-                        <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <input 
                                 type="text"
-                                id="gasto-descripcion"
-                                class="input-neon px-4 py-3 rounded-xl text-white"
-                                placeholder="Descripción"
+                                id="gasto-texto"
+                                class="input-neon px-4 py-3 rounded-xl text-white md:col-span-1"
+                                placeholder="ej: mercadona 23.50"
+                                oninput="
+                                    const parseado = parsearTextoInteligente(this.value);
+                                    if (parseado.monto) {
+                                        document.getElementById('gasto-monto').value = parseado.monto;
+                                        document.getElementById('gasto-categoria').value = parseado.categoria;
+                                    }
+                                "
                                 onkeyup="if(event.key==='Enter') agregarGasto()"
                             />
-                            <input 
-                                type="number"
-                                id="gasto-monto"
-                                step="0.01"
-                                min="0"
-                                class="input-neon px-4 py-3 rounded-xl text-white"
-                                placeholder="Monto (€)"
-                                onkeyup="if(event.key==='Enter') agregarGasto()"
-                            />
-                            <select 
-                                id="gasto-categoria"
-                                class="input-neon px-4 py-3 rounded-xl text-white"
-                            >
-                                ${state.categorias.map(cat => `<option value="${cat}">${cat}</option>`).join('')}
-                            </select>
                             <select 
                                 id="gasto-cuenta"
                                 class="input-neon px-4 py-3 rounded-xl text-white"
@@ -855,9 +980,13 @@
                                 ➕ Agregar
                             </button>
                         </div>
+                        
+                        <!-- Campos ocultos para autocompletado -->
+                        <input type="hidden" id="gasto-monto" />
+                        <input type="hidden" id="gasto-categoria" value="${state.categorias[0]}" />
                     </div>
 
-                    <!-- Últimos Gastos -->
+                    <!-- Últimos Gastos con Edición -->
                     ${state.gastos.length > 0 ? `
                         <div class="card-neon rounded-2xl p-6">
                             <h3 class="text-xl font-bold text-white mb-4">📝 Últimos Gastos</h3>
@@ -865,6 +994,29 @@
                                 ${state.gastos.slice().reverse().slice(0, 5).map(gasto => {
                                     const fecha = new Date(gasto.fecha);
                                     const cuenta = state.cuentas.find(c => c.id === gasto.cuentaId);
+                                    const editando = state.editando && state.editando.tipo === 'gasto' && state.editando.id === gasto.id;
+                                    
+                                    if (editando) {
+                                        return `
+                                            <div class="bg-black/30 rounded-xl p-3">
+                                                <div class="grid grid-cols-1 md:grid-cols-5 gap-2">
+                                                    <input type="text" id="edit-desc-${gasto.id}" value="${gasto.descripcion}" class="input-neon px-2 py-1 rounded text-white text-sm" placeholder="Descripción" />
+                                                    <input type="number" step="0.01" min="0" id="edit-monto-${gasto.id}" value="${gasto.monto}" class="input-neon px-2 py-1 rounded text-white text-sm" />
+                                                    <select id="edit-cat-${gasto.id}" class="input-neon px-2 py-1 rounded text-white text-sm">
+                                                        ${state.categorias.map(cat => `<option value="${cat}" ${gasto.categoria === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                                                    </select>
+                                                    <select id="edit-cuenta-${gasto.id}" class="input-neon px-2 py-1 rounded text-white text-sm">
+                                                        ${state.cuentas.map(c => `<option value="${c.id}" ${gasto.cuentaId === c.id ? 'selected' : ''}>${c.nombre}</option>`).join('')}
+                                                    </select>
+                                                    <div class="flex gap-1">
+                                                        <button onclick="guardarEdicionGasto(${gasto.id})" class="btn-neon bg-green-600 px-3 py-1 rounded text-sm flex-1">💾</button>
+                                                        <button onclick="cancelarEdicion()" class="btn-neon bg-gray-600 px-3 py-1 rounded text-sm flex-1">❌</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }
+                                    
                                     return `
                                         <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-3">
                                             <div class="flex-1">
@@ -877,11 +1029,19 @@
                                                 </div>
                                                 <p class="text-gray-400 text-xs mt-1">${fecha.toLocaleDateString('es-ES')} - ${cuenta ? cuenta.nombre : 'Sin cuenta'}</p>
                                             </div>
-                                            <div class="flex items-center gap-4">
+                                            <div class="flex items-center gap-2">
                                                 <span class="text-red-400 font-bold">${parseFloat(gasto.monto).toFixed(2)}€</span>
+                                                <button 
+                                                    onclick="editarGasto(${gasto.id})"
+                                                    class="delete-btn text-blue-500 hover:text-blue-400 transition-colors"
+                                                    title="Editar"
+                                                >
+                                                    ✏️
+                                                </button>
                                                 <button 
                                                     onclick="eliminarGasto(${gasto.id})"
                                                     class="delete-btn text-red-500 hover:text-red-400 transition-colors"
+                                                    title="Eliminar"
                                                 >
                                                     ❌
                                                 </button>
@@ -944,15 +1104,15 @@
 
                         <div class="stat-card rounded-2xl p-6 border-2 border-orange-500/30">
                             <div class="flex items-center justify-between mb-2">
-                                <span class="text-gray-400 text-sm">Gastos Fijos</span>
-                                <span class="text-2xl">🏠</span>
+                                <span class="text-gray-400 text-sm">Gastos Recurrentes</span>
+                                <span class="text-2xl">🔄</span>
                             </div>
-                            <p class="text-3xl font-black text-orange-400">-${stats.totalGastosFijos.toFixed(2)}€</p>
+                            <p class="text-3xl font-black text-orange-400">-${stats.totalGastosRecurrentes.toFixed(2)}€</p>
                         </div>
                     </div>
 
                     <!-- Estado de Cuentas -->
-                    <div class="card-neon rounded-2xl p-6 mb-8">
+                    <div class="card-neon rounded-2xl p-6">
                         <h3 class="text-xl font-bold text-white mb-4">💳 Estado de Cuentas</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             ${state.cuentas.map(cuenta => `
@@ -967,105 +1127,6 @@
                                 </div>
                             `).join('')}
                         </div>
-                    </div>
-
-                    <!-- Ingresos Puntuales -->
-                    <div class="card-neon rounded-2xl p-6 mb-8">
-                        <h2 class="text-2xl font-bold mb-6 text-white">💵 Agregar Ingreso</h2>
-                        
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                            <input 
-                                type="text"
-                                id="ingreso-descripcion"
-                                class="input-neon px-4 py-3 rounded-xl text-white"
-                                placeholder="Descripción"
-                                onkeyup="if(event.key==='Enter') agregarIngreso()"
-                            />
-                            <input 
-                                type="number"
-                                id="ingreso-monto"
-                                step="0.01"
-                                min="0"
-                                class="input-neon px-4 py-3 rounded-xl text-white"
-                                placeholder="Monto (€)"
-                                onkeyup="if(event.key==='Enter') agregarIngreso()"
-                            />
-                            <select 
-                                id="ingreso-cuenta"
-                                class="input-neon px-4 py-3 rounded-xl text-white"
-                            >
-                                ${state.cuentas.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('')}
-                            </select>
-                            <button 
-                                onclick="agregarIngreso()"
-                                class="btn-neon bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 rounded-xl font-bold"
-                            >
-                                ➕ Agregar
-                            </button>
-                        </div>
-
-                        ${state.ingresos.length > 0 ? `
-                            <div class="space-y-2">
-                                ${state.ingresos.slice().reverse().slice(0, 5).map(ingreso => {
-                                    const fecha = new Date(ingreso.fecha);
-                                    const cuenta = state.cuentas.find(c => c.id === ingreso.cuentaId);
-                                    return `
-                                        <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-3">
-                                            <div class="flex-1">
-                                                <p class="text-white font-semibold">${ingreso.descripcion}</p>
-                                                <p class="text-gray-400 text-xs mt-1">${fecha.toLocaleDateString('es-ES')} - ${cuenta ? cuenta.nombre : 'Sin cuenta'}</p>
-                                            </div>
-                                            <div class="flex items-center gap-4">
-                                                <span class="text-green-400 font-bold">+${parseFloat(ingreso.monto).toFixed(2)}€</span>
-                                                <button 
-                                                    onclick="eliminarIngreso(${ingreso.id})"
-                                                    class="delete-btn text-red-500 hover:text-red-400 transition-colors"
-                                                >
-                                                    ❌
-                                                </button>
-                                            </div>
-                                        </div>
-                                    `;
-                                }).join('')}
-                            </div>
-                        ` : '<p class="text-gray-400 text-center py-4">No hay ingresos puntuales registrados</p>'}
-                    </div>
-
-                    <!-- Todos los Gastos del Período -->
-                    <div class="card-neon rounded-2xl p-6">
-                        <h3 class="text-xl font-bold text-white mb-4">📊 Todos los Gastos del Período</h3>
-                        ${state.gastos.length > 0 ? `
-                            <div class="space-y-2 max-h-96 overflow-y-auto">
-                                ${state.gastos.slice().reverse().map(gasto => {
-                                    const fecha = new Date(gasto.fecha);
-                                    const cuenta = state.cuentas.find(c => c.id === gasto.cuentaId);
-                                    return `
-                                        <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-3">
-                                            <div class="flex-1">
-                                                <div class="flex items-center gap-2">
-                                                    <div 
-                                                        class="w-3 h-3 rounded-full"
-                                                        style="background-color: ${obtenerColorCategoria(gasto.categoria || 'Otros')}"
-                                                    ></div>
-                                                    <span class="text-white font-semibold">${gasto.descripcion}</span>
-                                                    ${gasto.esRecurrente ? '<span class="text-xs bg-purple-600 px-2 py-1 rounded">Recurrente</span>' : ''}
-                                                </div>
-                                                <p class="text-gray-400 text-xs mt-1">${fecha.toLocaleDateString('es-ES')} - ${gasto.categoria || 'Otros'} - ${cuenta ? cuenta.nombre : 'Sin cuenta'}</p>
-                                            </div>
-                                            <div class="flex items-center gap-4">
-                                                <span class="text-red-400 font-bold">${parseFloat(gasto.monto).toFixed(2)}€</span>
-                                                <button 
-                                                    onclick="eliminarGasto(${gasto.id})"
-                                                    class="delete-btn text-red-500 hover:text-red-400 transition-colors"
-                                                >
-                                                    ❌
-                                                </button>
-                                            </div>
-                                        </div>
-                                    `;
-                                }).join('')}
-                            </div>
-                        ` : '<p class="text-gray-400 text-center py-4">No hay gastos registrados en este período</p>'}
                     </div>
                 `;
             }
@@ -1141,6 +1202,74 @@
                                     ></div>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Todos los Gastos del Período -->
+                        <div class="card-neon rounded-2xl p-6">
+                            <h3 class="text-xl font-bold text-white mb-4">📊 Todos los Gastos del Período</h3>
+                            ${state.gastos.length > 0 ? `
+                                <div class="space-y-2 max-h-96 overflow-y-auto">
+                                    ${state.gastos.slice().reverse().map(gasto => {
+                                        const fecha = new Date(gasto.fecha);
+                                        const cuenta = state.cuentas.find(c => c.id === gasto.cuentaId);
+                                        const editando = state.editando && state.editando.tipo === 'gasto' && state.editando.id === gasto.id;
+                                        
+                                        if (editando) {
+                                            return `
+                                                <div class="bg-black/30 rounded-xl p-3">
+                                                    <div class="grid grid-cols-1 md:grid-cols-5 gap-2">
+                                                        <input type="text" id="edit-desc-${gasto.id}" value="${gasto.descripcion}" class="input-neon px-2 py-1 rounded text-white text-sm" placeholder="Descripción" />
+                                                        <input type="number" step="0.01" min="0" id="edit-monto-${gasto.id}" value="${gasto.monto}" class="input-neon px-2 py-1 rounded text-white text-sm" />
+                                                        <select id="edit-cat-${gasto.id}" class="input-neon px-2 py-1 rounded text-white text-sm">
+                                                            ${state.categorias.map(cat => `<option value="${cat}" ${gasto.categoria === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                                                        </select>
+                                                        <select id="edit-cuenta-${gasto.id}" class="input-neon px-2 py-1 rounded text-white text-sm">
+                                                            ${state.cuentas.map(c => `<option value="${c.id}" ${gasto.cuentaId === c.id ? 'selected' : ''}>${c.nombre}</option>`).join('')}
+                                                        </select>
+                                                        <div class="flex gap-1">
+                                                            <button onclick="guardarEdicionGasto(${gasto.id})" class="btn-neon bg-green-600 px-3 py-1 rounded text-sm flex-1">💾</button>
+                                                            <button onclick="cancelarEdicion()" class="btn-neon bg-gray-600 px-3 py-1 rounded text-sm flex-1">❌</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            `;
+                                        }
+                                        
+                                        return `
+                                            <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-3">
+                                                <div class="flex-1">
+                                                    <div class="flex items-center gap-2">
+                                                        <div 
+                                                            class="w-3 h-3 rounded-full"
+                                                            style="background-color: ${obtenerColorCategoria(gasto.categoria || 'Otros')}"
+                                                        ></div>
+                                                        <span class="text-white font-semibold">${gasto.descripcion}</span>
+                                                        ${gasto.esRecurrente ? '<span class="text-xs bg-purple-600 px-2 py-1 rounded">Recurrente</span>' : ''}
+                                                    </div>
+                                                    <p class="text-gray-400 text-xs mt-1">${fecha.toLocaleDateString('es-ES')} - ${gasto.categoria || 'Otros'} - ${cuenta ? cuenta.nombre : 'Sin cuenta'}</p>
+                                                </div>
+                                                <div class="flex items-center gap-2">
+                                                    <span class="text-red-400 font-bold">${parseFloat(gasto.monto).toFixed(2)}€</span>
+                                                    <button 
+                                                        onclick="editarGasto(${gasto.id})"
+                                                        class="delete-btn text-blue-500 hover:text-blue-400 transition-colors"
+                                                        title="Editar"
+                                                    >
+                                                        ✏️
+                                                    </button>
+                                                    <button 
+                                                        onclick="eliminarGasto(${gasto.id})"
+                                                        class="delete-btn text-red-500 hover:text-red-400 transition-colors"
+                                                        title="Eliminar"
+                                                    >
+                                                        ❌
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            ` : '<p class="text-gray-400 text-center py-4">No hay gastos registrados en este período</p>'}
                         </div>
                     </div>
                 `;
@@ -1330,81 +1459,57 @@
                             </div>
                         </div>
 
-                        <!-- Gastos Fijos -->
-                        <div class="card-neon rounded-2xl p-6">
-                            <h2 class="text-2xl font-bold mb-6 text-white">🏠 Gastos Fijos Mensuales</h2>
-                            
-                            ${state.gastosFijos.length > 0 ? `
-                                <div class="space-y-3 mb-6">
-                                    ${state.gastosFijos.map(gasto => `
-                                        <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-4">
-                                            <div class="flex-1">
-                                                <p class="text-white font-semibold">${gasto.nombre}</p>
-                                            </div>
-                                            <div class="flex items-center gap-4">
-                                                <span class="text-red-400 font-bold text-lg">${parseFloat(gasto.monto).toFixed(2)}€</span>
-                                                <button 
-                                                    onclick="eliminarGastoFijo(${gasto.id})"
-                                                    class="delete-btn text-red-500 hover:text-red-400 transition-colors"
-                                                >
-                                                    ❌
-                                                </button>
-                                            </div>
-                                        </div>
-                                    `).join('')}
-                                    <div class="border-t border-purple-500/30 pt-3 flex justify-between items-center">
-                                        <span class="text-gray-300 font-bold">Total Gastos Fijos:</span>
-                                        <span class="text-red-400 font-bold text-xl">${state.gastosFijos.reduce((sum, g) => sum + parseFloat(g.monto || 0), 0).toFixed(2)}€</span>
-                                    </div>
-                                </div>
-                            ` : '<p class="text-gray-400 text-center py-4 mb-6">No hay gastos fijos registrados</p>'}
-
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <input 
-                                    type="text"
-                                    id="gasto-fijo-nombre"
-                                    class="input-neon px-4 py-3 rounded-xl text-white"
-                                    placeholder="Nombre del gasto"
-                                    onkeyup="if(event.key==='Enter') { document.getElementById('gasto-fijo-monto').focus(); }"
-                                />
-                                <input 
-                                    type="number"
-                                    id="gasto-fijo-monto"
-                                    step="0.01"
-                                    min="0"
-                                    class="input-neon px-4 py-3 rounded-xl text-white"
-                                    placeholder="Monto (€)"
-                                    onkeyup="if(event.key==='Enter') agregarGastoFijo()"
-                                />
-                                <button 
-                                    onclick="agregarGastoFijo()"
-                                    class="btn-neon bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl font-bold"
-                                >
-                                    ➕ Agregar Gasto Fijo
-                                </button>
-                            </div>
-                        </div>
-
                         <!-- Gastos Recurrentes -->
                         <div class="card-neon rounded-2xl p-6">
                             <h2 class="text-2xl font-bold mb-6 text-white">🔄 Gastos Recurrentes (Automáticos)</h2>
-                            <p class="text-gray-400 text-sm mb-4">Estos gastos se añadirán automáticamente al inicio de cada período de pago</p>
+                            <p class="text-gray-400 text-sm mb-4">Se añaden automáticamente cada período (alquiler, suscripciones, etc.)</p>
                             
                             ${state.gastosRecurrentes.length > 0 ? `
                                 <div class="space-y-3 mb-6">
                                     ${state.gastosRecurrentes.map(gasto => {
                                         const cuenta = state.cuentas.find(c => c.id === gasto.cuentaId);
+                                        const editando = state.editando && state.editando.tipo === 'gastoRecurrente' && state.editando.id === gasto.id;
+                                        
+                                        if (editando) {
+                                            return `
+                                                <div class="bg-black/30 rounded-xl p-4">
+                                                    <div class="grid grid-cols-1 md:grid-cols-5 gap-2">
+                                                        <input type="text" id="edit-nombre-${gasto.id}" value="${gasto.nombre}" class="input-neon px-2 py-1 rounded text-white text-sm" placeholder="Nombre" />
+                                                        <input type="number" step="0.01" min="0" id="edit-monto-${gasto.id}" value="${gasto.monto}" class="input-neon px-2 py-1 rounded text-white text-sm" />
+                                                        <select id="edit-cat-${gasto.id}" class="input-neon px-2 py-1 rounded text-white text-sm">
+                                                            ${state.categorias.map(cat => `<option value="${cat}" ${gasto.categoria === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                                                        </select>
+                                                        <select id="edit-cuenta-${gasto.id}" class="input-neon px-2 py-1 rounded text-white text-sm">
+                                                            ${state.cuentas.map(c => `<option value="${c.id}" ${gasto.cuentaId === c.id ? 'selected' : ''}>${c.nombre}</option>`).join('')}
+                                                        </select>
+                                                        <div class="flex gap-1">
+                                                            <button onclick="guardarEdicionGastoRecurrente(${gasto.id})" class="btn-neon bg-green-600 px-3 py-1 rounded text-sm flex-1">💾</button>
+                                                            <button onclick="cancelarEdicion()" class="btn-neon bg-gray-600 px-3 py-1 rounded text-sm flex-1">❌</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            `;
+                                        }
+                                        
                                         return `
                                             <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-4">
                                                 <div class="flex-1">
                                                     <p class="text-white font-semibold">${gasto.nombre}</p>
                                                     <p class="text-gray-400 text-sm">${gasto.categoria} - ${cuenta ? cuenta.nombre : 'Sin cuenta'}</p>
                                                 </div>
-                                                <div class="flex items-center gap-4">
+                                                <div class="flex items-center gap-2">
                                                     <span class="text-red-400 font-bold text-lg">${parseFloat(gasto.monto).toFixed(2)}€</span>
+                                                    <button 
+                                                        onclick="editarGastoRecurrente(${gasto.id})"
+                                                        class="delete-btn text-blue-500 hover:text-blue-400 transition-colors"
+                                                        title="Editar"
+                                                    >
+                                                        ✏️
+                                                    </button>
                                                     <button 
                                                         onclick="eliminarGastoRecurrente(${gasto.id})"
                                                         class="delete-btn text-red-500 hover:text-red-400 transition-colors"
+                                                        title="Eliminar"
                                                     >
                                                         ❌
                                                     </button>
@@ -1412,6 +1517,10 @@
                                             </div>
                                         `;
                                     }).join('')}
+                                    <div class="border-t border-purple-500/30 pt-3 flex justify-between items-center">
+                                        <span class="text-gray-300 font-bold">Total Recurrente:</span>
+                                        <span class="text-red-400 font-bold text-xl">${state.gastosRecurrentes.reduce((sum, g) => sum + parseFloat(g.monto || 0), 0).toFixed(2)}€</span>
+                                    </div>
                                 </div>
                             ` : '<p class="text-gray-400 text-center py-4 mb-6">No hay gastos recurrentes configurados</p>'}
 
@@ -1449,6 +1558,96 @@
                                     ➕ Agregar
                                 </button>
                             </div>
+                        </div>
+
+                        <!-- Ingresos Puntuales -->
+                        <div class="card-neon rounded-2xl p-6">
+                            <h2 class="text-2xl font-bold mb-6 text-white">💵 Ingresos Puntuales</h2>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                                <input 
+                                    type="text"
+                                    id="ingreso-descripcion"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                    placeholder="Descripción (opcional)"
+                                    onkeyup="if(event.key==='Enter') document.getElementById('ingreso-monto').focus()"
+                                />
+                                <input 
+                                    type="number"
+                                    id="ingreso-monto"
+                                    step="0.01"
+                                    min="0"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                    placeholder="Monto (€)"
+                                    onkeyup="if(event.key==='Enter') agregarIngreso()"
+                                />
+                                <select 
+                                    id="ingreso-cuenta"
+                                    class="input-neon px-4 py-3 rounded-xl text-white"
+                                >
+                                    ${state.cuentas.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('')}
+                                </select>
+                                <button 
+                                    onclick="agregarIngreso()"
+                                    class="btn-neon bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 rounded-xl font-bold"
+                                >
+                                    ➕ Agregar
+                                </button>
+                            </div>
+
+                            ${state.ingresos.length > 0 ? `
+                                <div class="space-y-2 max-h-60 overflow-y-auto">
+                                    ${state.ingresos.slice().reverse().map(ingreso => {
+                                        const fecha = new Date(ingreso.fecha);
+                                        const cuenta = state.cuentas.find(c => c.id === ingreso.cuentaId);
+                                        const editando = state.editando && state.editando.tipo === 'ingreso' && state.editando.id === ingreso.id;
+                                        
+                                        if (editando) {
+                                            return `
+                                                <div class="bg-black/30 rounded-xl p-3">
+                                                    <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+                                                        <input type="text" id="edit-desc-${ingreso.id}" value="${ingreso.descripcion}" class="input-neon px-2 py-1 rounded text-white text-sm" placeholder="Descripción" />
+                                                        <input type="number" step="0.01" min="0" id="edit-monto-${ingreso.id}" value="${ingreso.monto}" class="input-neon px-2 py-1 rounded text-white text-sm" />
+                                                        <select id="edit-cuenta-${ingreso.id}" class="input-neon px-2 py-1 rounded text-white text-sm">
+                                                            ${state.cuentas.map(c => `<option value="${c.id}" ${ingreso.cuentaId === c.id ? 'selected' : ''}>${c.nombre}</option>`).join('')}
+                                                        </select>
+                                                        <div class="flex gap-1">
+                                                            <button onclick="guardarEdicionIngreso(${ingreso.id})" class="btn-neon bg-green-600 px-3 py-1 rounded text-sm flex-1">💾</button>
+                                                            <button onclick="cancelarEdicion()" class="btn-neon bg-gray-600 px-3 py-1 rounded text-sm flex-1">❌</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            `;
+                                        }
+                                        
+                                        return `
+                                            <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-3">
+                                                <div class="flex-1">
+                                                    <p class="text-white font-semibold">${ingreso.descripcion}</p>
+                                                    <p class="text-gray-400 text-xs mt-1">${fecha.toLocaleDateString('es-ES')} - ${cuenta ? cuenta.nombre : 'Sin cuenta'}</p>
+                                                </div>
+                                                <div class="flex items-center gap-2">
+                                                    <span class="text-green-400 font-bold">+${parseFloat(ingreso.monto).toFixed(2)}€</span>
+                                                    <button 
+                                                        onclick="editarIngreso(${ingreso.id})"
+                                                        class="delete-btn text-blue-500 hover:text-blue-400 transition-colors"
+                                                        title="Editar"
+                                                    >
+                                                        ✏️
+                                                    </button>
+                                                    <button 
+                                                        onclick="eliminarIngreso(${ingreso.id})"
+                                                        class="delete-btn text-red-500 hover:text-red-400 transition-colors"
+                                                        title="Eliminar"
+                                                    >
+                                                        ❌
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            ` : '<p class="text-gray-400 text-center py-4">No hay ingresos puntuales registrados</p>'}
                         </div>
 
                         <!-- Ajustes -->
