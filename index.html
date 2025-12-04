@@ -1618,9 +1618,9 @@
             `;
 
             // VISTA PRINCIPAL (TODO O TEU CÓDIGO)
-            if (state.vista === 'principal') {
+          if (state.vista === 'principal') {
                 html += `
-                    <!-- Gasto Disponible por Día -->
+                    <!-- Saldo Disponible -->
                     <div class="flex justify-center mb-8">
                         <div class="stat-card rounded-3xl p-12 border-4 border-pink-500/50 max-w-2xl w-full text-center pulse-animation">
                             <div class="flex items-center justify-center mb-4">
@@ -1639,7 +1639,7 @@
                         </div>
                     </div>
 
-                    <!-- Proyecciones e Inteligencia Financiera -->
+                    <!-- Proyecciones 3 y 6 meses -->
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                         <div class="card-neon rounded-2xl p-6">
                             <h3 class="text-xl font-bold text-white mb-4">🔮 Proxección a 3 Meses</h3>
@@ -1648,23 +1648,30 @@
                             <p class="text-gray-400 text-sm mt-2">Aforro mensual: ${proyecciones.ahorroMensualActual.toFixed(2)}€</p>
                         </div>
 
-                        ${proyecciones.recomendacion ? `
-                            <div class="card-neon rounded-2xl p-6">
-                                <h3 class="text-xl font-bold text-white mb-4">💡 Recomendación</h3>
-                                <p class="text-gray-400 mb-2">Se reduces un 10% en <span class="text-yellow-400 font-semibold">${proyecciones.recomendacion.categoria}</span>:</p>
-                                <p class="text-2xl font-bold text-green-400">+${proyecciones.recomendacion.ahorroPotencial.toFixed(2)}€/mes</p>
-                                ${proyecciones.recomendacion.objetivo ? `
-                                    <p class="text-sm text-gray-400 mt-2">
-                                        Lograrías "${proyecciones.recomendacion.objetivo.nombre}" ${proyecciones.recomendacion.objetivo.diasMejor} días antes
-                                    </p>
-                                ` : ''}
-                            </div>
-                        ` : ''}
+                        <div class="card-neon rounded-2xl p-6">
+                            <h3 class="text-xl font-bold text-white mb-4">🔮 Proxección a 6 Meses</h3>
+                            <p class="text-gray-400 mb-2">Se mantés este ritmo:</p>
+                            <p class="text-3xl font-black text-green-400">+${(proyecciones.proyeccion3Meses * 2).toFixed(2)}€</p>
+                            <p class="text-gray-400 text-sm mt-2">Aforro total: ${(proyecciones.ahorroMensualActual * 6).toFixed(2)}€</p>
+                        </div>
                     </div>
 
-                    <!-- Gastos Variables Rápido con Parser Inteligente -->
+                    ${proyecciones.recomendacion ? `
+                        <div class="card-neon rounded-2xl p-6 mb-8">
+                            <h3 class="text-xl font-bold text-white mb-4">💡 Recomendación</h3>
+                            <p class="text-gray-400 mb-2">Se reduces un 10% en <span class="text-yellow-400 font-semibold">${proyecciones.recomendacion.categoria}</span>:</p>
+                            <p class="text-2xl font-bold text-green-400">+${proyecciones.recomendacion.ahorroPotencial.toFixed(2)}€/mes</p>
+                            ${proyecciones.recomendacion.objetivo ? `
+                                <p class="text-sm text-gray-400 mt-2">
+                                    Lograrías "${proyecciones.recomendacion.objetivo.nombre}" ${proyecciones.recomendacion.objetivo.diasMejor} días antes
+                                </p>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+
+                    <!-- Engadir Gasto -->
                     <div class="card-neon rounded-2xl p-6 mb-8">
-                        <h2 class="text-2xl font-bold mb-4 text-white">💸 Engadir Gasto Rápido</h2>
+                        <h2 class="text-2xl font-bold mb-4 text-white">💸 Engadir Gasto</h2>
                         <p class="text-gray-400 text-sm mb-4">💡 Escribe directo: "supermercado 30" ou "gasolina 45.50"</p>
                         
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1696,17 +1703,106 @@
                             </button>
                         </div>
                         
-                        <!-- Campos ocultos para autocompletado -->
                         <input type="hidden" id="gasto-monto" />
                         <input type="hidden" id="gasto-categoria" value="${state.categorias[0]}" />
                     </div>
 
-                    <!-- Últimos Gastos con Edición -->
+                    <!-- Ingresos Puntuais -->
+                    <div class="card-neon rounded-2xl p-6 mb-8">
+                        <h2 class="text-2xl font-bold mb-6 text-white">💵 Ingresos Puntuais</h2>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                            <input 
+                                type="text"
+                                id="ingreso-descripcion"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                                placeholder="Descrición (opcional)"
+                                onkeyup="if(event.key==='Enter') document.getElementById('ingreso-monto').focus()"
+                            />
+                            <input 
+                                type="number"
+                                id="ingreso-monto"
+                                step="0.01"
+                                min="0"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                                placeholder="Monto (€)"
+                                onkeyup="if(event.key==='Enter') agregarIngreso()"
+                            />
+                            <select 
+                                id="ingreso-cuenta"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                            >
+                                ${state.cuentas.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('')}
+                            </select>
+                            <button 
+                                onclick="agregarIngreso()"
+                                class="btn-neon bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 rounded-xl font-bold"
+                            >
+                                ➕ Engadir
+                            </button>
+                        </div>
+
+                        ${state.ingresos.length > 0 ? `
+                            <div class="space-y-2 max-h-60 overflow-y-auto">
+                                ${state.ingresos.slice().reverse().map(ingreso => {
+                                    const fecha = new Date(ingreso.fecha);
+                                    const cuenta = state.cuentas.find(c => c.id === ingreso.cuentaId);
+                                    const editando = state.editando && state.editando.tipo === 'ingreso' && state.editando.id === ingreso.id;
+                                    
+                                    if (editando) {
+                                        return `
+                                            <div class="bg-black/30 rounded-xl p-3">
+                                                <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+                                                    <input type="text" id="edit-desc-${ingreso.id}" value="${ingreso.descripcion}" class="input-neon px-2 py-1 rounded text-white text-sm" placeholder="Descripción" />
+                                                    <input type="number" step="0.01" min="0" id="edit-monto-${ingreso.id}" value="${ingreso.monto}" class="input-neon px-2 py-1 rounded text-white text-sm" />
+                                                    <select id="edit-cuenta-${ingreso.id}" class="input-neon px-2 py-1 rounded text-white text-sm">
+                                                        ${state.cuentas.map(c => `<option value="${c.id}" ${ingreso.cuentaId === c.id ? 'selected' : ''}>${c.nombre}</option>`).join('')}
+                                                    </select>
+                                                    <div class="flex gap-1">
+                                                        <button onclick="guardarEdicionIngreso(${ingreso.id})" class="btn-neon bg-green-600 px-3 py-1 rounded text-sm flex-1">💾</button>
+                                                        <button onclick="cancelarEdicion()" class="btn-neon bg-gray-600 px-3 py-1 rounded text-sm flex-1">❌</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }
+                                    
+                                    return `
+                                        <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-3">
+                                            <div class="flex-1">
+                                                <p class="text-white font-semibold">${ingreso.descripcion}</p>
+                                                <p class="text-gray-400 text-xs mt-1">${fecha.toLocaleDateString('gl-ES')} - ${cuenta ? cuenta.nombre : 'Sen conta'}</p>
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-green-400 font-bold">+${parseFloat(ingreso.monto).toFixed(2)}€</span>
+                                                <button 
+                                                    onclick="editarIngreso(${ingreso.id})"
+                                                    class="delete-btn text-blue-500 hover:text-blue-400 transition-colors"
+                                                    title="Editar"
+                                                >
+                                                    ✏️
+                                                </button>
+                                                <button 
+                                                    onclick="eliminarIngreso(${ingreso.id})"
+                                                    class="delete-btn text-red-500 hover:text-red-400 transition-colors"
+                                                    title="Eliminar"
+                                                >
+                                                    ❌
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        ` : '<p class="text-gray-400 text-center py-4">Non hai ingresos puntuais rexistrados</p>'}
+                    </div>
+
+                    <!-- Últimos Gastos -->
                     ${state.gastos.length > 0 ? `
                         <div class="card-neon rounded-2xl p-6">
                             <h3 class="text-xl font-bold text-white mb-4">📝 Últimos Gastos</h3>
                             <div class="space-y-2">
-                                ${state.gastos.slice().reverse().slice(0, 5).map(gasto => {
+                                ${state.gastos.slice().reverse().slice(0, 10).map(gasto => {
                                     const fecha = new Date(gasto.fecha);
                                     const cuenta = state.cuentas.find(c => c.id === gasto.cuentaId);
                                     const editando = state.editando && state.editando.tipo === 'gasto' && state.editando.id === gasto.id;
@@ -1770,24 +1866,34 @@
                 `;
             }
             // VISTA DE DIÑEIROS (TODO O TEU CÓDIGO)
-            else if (state.vista === 'dinheiros') {
+      else if (state.vista === 'dinheiros') {
+                // Calcular gasto de hoy
+                const hoy = new Date();
+                const gastosHoy = state.gastos.filter(g => {
+                    const fechaGasto = new Date(g.fecha);
+                    return fechaGasto.toDateString() === hoy.toDateString();
+                });
+                const gastoHoy = gastosHoy.reduce((sum, g) => sum + parseFloat(g.monto || 0), 0);
+
                 html += `
                     <!-- Estadísticas Completas -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
                         <div class="stat-card rounded-2xl p-6 border-2 border-purple-500/30">
                             <div class="flex items-center justify-between mb-2">
                                 <span class="text-gray-400 text-sm">Dispoñible Total</span>
                                 <span class="text-2xl">💰</span>
                             </div>
                             <p class="text-4xl font-black text-green-400">${stats.disponibleTotal.toFixed(2)}€</p>
+                            <p class="text-gray-400 text-xs mt-1">Suma de todas as contas</p>
                         </div>
 
                         <div class="stat-card rounded-2xl p-6 border-2 border-pink-500/30">
                             <div class="flex items-center justify-between mb-2">
-                                <span class="text-gray-400 text-sm">Gasto por Día</span>
+                                <span class="text-gray-400 text-sm">Gasto Realizado Hoxe</span>
                                 <span class="text-2xl">📅</span>
                             </div>
-                            <p class="text-4xl font-black text-yellow-400">${stats.gastoPorDiaRestante.toFixed(2)}€</p>
+                            <p class="text-4xl font-black text-red-400">${gastoHoy.toFixed(2)}€</p>
+                            <p class="text-gray-400 text-xs mt-1">${gastosHoy.length} gastos</p>
                         </div>
 
                         <div class="stat-card rounded-2xl p-6 border-2 border-blue-500/30">
@@ -1805,16 +1911,14 @@
                             </div>
                             <p class="text-4xl font-black text-red-400">${stats.totalGastos.toFixed(2)}€</p>
                         </div>
-                    </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                         <div class="stat-card rounded-2xl p-6 border-2 border-green-500/30">
                             <div class="flex items-center justify-between mb-2">
-                                <span class="text-gray-400 text-sm">Ingresos Totais</span>
+                                <span class="text-gray-400 text-sm">Ingresos do Período</span>
                                 <span class="text-2xl">💵</span>
                             </div>
-                            <p class="text-3xl font-black text-green-400">+${stats.ingresoTotal.toFixed(2)}€</p>
-                            <p class="text-gray-400 text-xs mt-2">Soldo: ${parseFloat(state.sueldo || 0).toFixed(2)}€ | Extras: ${stats.totalIngresos.toFixed(2)}€</p>
+                            <p class="text-4xl font-black text-green-400">${stats.ingresoTotal.toFixed(2)}€</p>
+                            <p class="text-gray-400 text-xs mt-1">Soldo + extras</p>
                         </div>
 
                         <div class="stat-card rounded-2xl p-6 border-2 border-orange-500/30">
@@ -1822,14 +1926,33 @@
                                 <span class="text-gray-400 text-sm">Gastos Recorrentes</span>
                                 <span class="text-2xl">🔄</span>
                             </div>
-                            <p class="text-3xl font-black text-orange-400">-${stats.totalGastosRecurrentes.toFixed(2)}€</p>
+                            <p class="text-4xl font-black text-orange-400">${stats.totalGastosRecurrentes.toFixed(2)}€</p>
                         </div>
                     </div>
 
-                    <!-- Estado de Cuentas -->
-                    <div class="card-neon rounded-2xl p-6">
+                    <!-- Período Actual -->
+                    <div class="card-neon rounded-2xl p-6 mb-8">
+                        <h2 class="text-2xl font-bold mb-4 text-white">📅 Período Actual</h2>
+                        <p class="text-gray-400">
+                            Do <span class="text-white font-semibold">${stats.inicioPeriodo.toLocaleDateString('gl-ES')}</span> 
+                            ao <span class="text-white font-semibold">${stats.finPeriodo.toLocaleDateString('gl-ES')}</span>
+                        </p>
+                        <div class="grid grid-cols-2 gap-4 mt-4">
+                            <div>
+                                <p class="text-gray-400 text-sm">Días transcorridos</p>
+                                <p class="text-2xl font-bold text-blue-400">${stats.diasTranscurridos}</p>
+                            </div>
+                            <div>
+                                <p class="text-gray-400 text-sm">Días restantes</p>
+                                <p class="text-2xl font-bold text-yellow-400">${stats.diasRestantes}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Estado de Cuentas + Gestión -->
+                    <div class="card-neon rounded-2xl p-6 mb-8">
                         <h3 class="text-xl font-bold text-white mb-4">💳 Estado de Contas</h3>
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                             ${state.cuentas.map(cuenta => `
                                 <div class="bg-black/30 rounded-xl p-4">
                                     <div class="flex items-center justify-between mb-2">
@@ -1839,8 +1962,158 @@
                                     <p class="text-2xl font-black ${cuenta.saldo >= 0 ? 'text-green-400' : 'text-red-400'}">
                                         ${cuenta.saldo.toFixed(2)}€
                                     </p>
+                                    <p class="text-gray-400 text-xs mt-1">Inicial: ${parseFloat(cuenta.saldoInicial || 0).toFixed(2)}€</p>
                                 </div>
                             `).join('')}
+                        </div>
+
+                        <h4 class="text-lg font-bold text-white mb-4">➕ Xestión de Contas</h4>
+                        <div class="space-y-3 mb-4">
+                            ${state.cuentas.map(cuenta => `
+                                <div class="bg-black/30 rounded-xl p-4 flex justify-between items-center">
+                                    <div class="flex-1">
+                                        <p class="text-white font-semibold">${cuenta.nombre}</p>
+                                        <p class="text-gray-400 text-sm">${cuenta.tipo === 'banco' ? '🏦 Banco' : cuenta.tipo === 'efectivo' ? '💵 Efectivo' : '💳 Tarxeta'}</p>
+                                    </div>
+                                    <div class="flex items-center gap-4">
+                                        ${state.cuentas.length > 1 ? `
+                                            <button 
+                                                onclick="eliminarCuenta(${cuenta.id})"
+                                                class="text-red-500 hover:text-red-400 transition-colors"
+                                            >
+                                                ❌
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <input 
+                                type="text"
+                                id="cuenta-nombre"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                                placeholder="Nome da conta"
+                            />
+                            <select 
+                                id="cuenta-tipo"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                            >
+                                <option value="banco">🏦 Banco</option>
+                                <option value="efectivo">💵 Efectivo</option>
+                                <option value="tarjeta">💳 Tarxeta</option>
+                            </select>
+                            <input 
+                                type="number"
+                                id="cuenta-saldo"
+                                step="0.01"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                                placeholder="Saldo inicial (€)"
+                            />
+                            <button 
+                                onclick="agregarCuenta()"
+                                class="btn-neon bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl font-bold"
+                            >
+                                ➕ Engadir Conta
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Ajustes/Correccións -->
+                    <div class="card-neon rounded-2xl p-6">
+                        <h2 class="text-2xl font-bold mb-6 text-white">⚖️ Axustes (Correccións)</h2>
+                        <p class="text-gray-400 text-sm mb-4">Usa axustes para corrixir diferenzas ou engadir movementos especiais</p>
+                        
+                        ${state.ajustes && state.ajustes.length > 0 ? `
+                            <div class="space-y-3 mb-6 max-h-60 overflow-y-auto">
+                                ${state.ajustes.slice().reverse().map(ajuste => {
+                                    const fecha = new Date(ajuste.fecha);
+                                    const cuenta = state.cuentas.find(c => c.id === ajuste.cuentaId);
+                                    return `
+                                        <div class="item-hover flex justify-between items-center bg-black/30 rounded-xl p-4">
+                                            <div class="flex-1">
+                                                <p class="text-white font-semibold">${ajuste.descripcion}</p>
+                                                <p class="text-gray-400 text-sm mt-1">${fecha.toLocaleDateString('gl-ES')} - ${cuenta ? cuenta.nombre : 'Sen conta'}</p>
+                                            </div>
+                                            <div class="flex items-center gap-4">
+                                                <span class="font-bold text-lg ${ajuste.tipo === 'positivo' ? 'text-green-400' : 'text-red-400'}">
+                                                    ${ajuste.tipo === 'positivo' ? '+' : '-'}${parseFloat(ajuste.monto).toFixed(2)}€
+                                                </span>
+                                                <button 
+                                                    onclick="
+                                                        state.ajustes = state.ajustes.filter(a => a.id !== ${ajuste.id});
+                                                        recalcularSaldosCuentas();
+                                                        guardarEstado();
+                                                        render();
+                                                    "
+                                                    class="delete-btn text-red-500 hover:text-red-400 transition-colors"
+                                                >
+                                                    ❌
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        ` : '<p class="text-gray-400 text-center py-4 mb-6">Non hai axustes rexistrados</p>'}
+
+                        <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                            <input 
+                                type="text"
+                                id="ajuste-descripcion"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                                placeholder="Descrición"
+                            />
+                            <input 
+                                type="number"
+                                id="ajuste-monto"
+                                step="0.01"
+                                min="0"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                                placeholder="Monto (€)"
+                            />
+                            <select 
+                                id="ajuste-tipo"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                            >
+                                <option value="positivo">➕ Positivo</option>
+                                <option value="negativo">➖ Negativo</option>
+                            </select>
+                            <select 
+                                id="ajuste-cuenta"
+                                class="input-neon px-4 py-3 rounded-xl text-white"
+                            >
+                                ${state.cuentas.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('')}
+                            </select>
+                            <button 
+                                onclick="
+                                    const descripcion = document.getElementById('ajuste-descripcion').value;
+                                    const monto = document.getElementById('ajuste-monto').value;
+                                    const tipo = document.getElementById('ajuste-tipo').value;
+                                    const cuentaId = parseInt(document.getElementById('ajuste-cuenta').value);
+                                    
+                                    if (descripcion && monto && parseFloat(monto) > 0) {
+                                        if (!state.ajustes) state.ajustes = [];
+                                        state.ajustes.push({
+                                            descripcion,
+                                            monto: parseFloat(monto),
+                                            tipo,
+                                            cuentaId,
+                                            fecha: new Date().toISOString(),
+                                            id: Date.now()
+                                        });
+                                        recalcularSaldosCuentas();
+                                        document.getElementById('ajuste-descripcion').value = '';
+                                        document.getElementById('ajuste-monto').value = '';
+                                        guardarEstado();
+                                        render();
+                                    }
+                                "
+                                class="btn-neon bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-3 rounded-xl font-bold"
+                            >
+                                ➕ Engadir
+                            </button>
                         </div>
                     </div>
                 `;
@@ -2979,7 +3252,36 @@
                 }, 100);
             }
         }
+// PULL TO REFRESH
+        let touchStartY = 0;
+        let isPulling = false;
+        
+        document.addEventListener('touchstart', (e) => {
+            if (window.scrollY === 0) {
+                touchStartY = e.touches[0].clientY;
+            }
+        });
+        
+        document.addEventListener('touchmove', (e) => {
+            if (window.scrollY === 0) {
+                const touchY = e.touches[0].clientY;
+                const pullDistance = touchY - touchStartY;
+                
+                if (pullDistance > 80 && !isPulling) {
+                    isPulling = true;
+                }
+            }
+        });
+        
+        document.addEventListener('touchend', () => {
+            if (isPulling) {
+                render();
+                isPulling = false;
+            }
+        });
 
+        // Renderizar la aplicación inicialmente
+        render();
         // Renderizar la aplicación inicialmente
         render();
     </script>
